@@ -66,8 +66,8 @@ def korean_imread(filename, flags= cv2.IMREAD_COLOR, dtype= np.uint8):
         return None
     
 
-def qr_code(source):
-    org = korean_imread(source)
+def qr_code(path):
+    org = korean_imread(path)
     gray = cv2.cvtColor(org, cv2.COLOR_BGR2GRAY)
     H, W = gray.shape
     qr_codes = decode(gray)
@@ -84,7 +84,7 @@ def qr_code(source):
         
         except Exception as e:
             print("Error:", e)
-            print(source)
+            print(path)
 
             return None
 
@@ -101,7 +101,7 @@ def cal_number_seeds(bbox, center_seeds):
 class Fruit(object):
     def __init__(self, image, id, bbox):
         self.id = id 
-        self.source = str(source)
+        self.path = str(path)
         self.bbox = bbox
         self.name = self.get_name()
         self.img = self.get_img()
@@ -114,7 +114,7 @@ class Fruit(object):
         self.wrinkle = self.get_wrinkle()
 
     def get_img(self):
-        img = cv2.imread(self.source)
+        img = cv2.imread(self.path)
         if img is None:
             print("image is not define")
             return 0
@@ -158,8 +158,8 @@ class Fruit(object):
         return fruit_mask
 
     def get_name(self):
-        source = Path(self.source)
-        name = source.stem
+        path = Path(self.path)
+        name = path.stem
         return f"{name}_{self.id}.jpg"
 
     def get_width_height_bbox(self):
