@@ -99,9 +99,10 @@ def cal_number_seeds(bbox, center_seeds):
     return number_seeds
 
 class Fruit(object):
-    def __init__(self, image, id, bbox):
-        self.id = id 
-        self.path = str(path)
+    def __init__(self, path, index, ratio, bbox):
+        self.id = index
+        self.ratio = ratio
+        self.path = path
         self.bbox = bbox
         self.name = self.get_name()
         self.img = self.get_img()
@@ -112,20 +113,6 @@ class Fruit(object):
         self.area_fruit = self.get_area()
         self.redness = self.get_redness()
         self.wrinkle = self.get_wrinkle()
-
-    def get_img(self):
-        img = cv2.imread(self.path)
-        if img is None:
-            print("image is not define")
-            return 0
-        
-        img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        bbox = self.bbox
-        fruit = img_RGB[int(max((bbox[1]-50), 0)):int(min(bbox[3]+50, img.shape[0])), int(max((bbox[0]-50), 0)):int(min(bbox[2]+50, img.shape[1]))]
-        # cv2.imshow("1", fruit)
-        # cv2.waitKey(0)
-        
-        return fruit
     
     def get_mask(self, use_closing = True, use_contour = True):
         img = self.img
@@ -166,7 +153,7 @@ class Fruit(object):
         img = self.img
         bbox = self.bbox
         ratio = self.ratio
-        width_bbox = round((bbox[2] - bbox[0])*ratio, 2)
+        width_bbox = round((bbox[2] - bbox[0])*ratio, 2)``
         height_bbox = round((bbox[3] - bbox[1])*ratio, 2)
         hsv_img = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
         low_green = np.array([25, 20, 20])
@@ -303,25 +290,38 @@ class Images(object):
     def __init__(self, path):
         self.path = path
         self.ratio,_ = qr_code(path)
-        self.image = Image.open(self.path)
-        w, h = img.size
-        self.width_img = w
-        self.height_img = h
-        self.bboxs = []
-        self.polygons = []
-        self.num_fruit = 0
+        self.image = self.get_img()
+        self.width_img, self.height_img = Image.open()
+        self.bboxs = self.get_bbox()
+        self.num_fruit = len(self.bboxs)
 
 
     def get_item(self, index):
-        x, y, w, h = self.bboxs[index]
-        bbox = (x, y, x + w, y + h)
+        # x, y, w, h = self.bboxs[index]
+        # bbox = (x, y, x + w, y + h)
 
-        cropped_img = img.crop(bbox)
+        # cropped_img = img.crop(bbox)
 
-        fruit = Fruit(img, self.bboxs[index], self.polygons[index])
+        # ????
+        fruit = Fruit(path, index, self.ratio, self.bboxs[index])
 
         return fruit
 
+    def get_bbox(self):
+        # ????
+        return bbox
 
 
+    def get_img(self):
+        img = cv2.imread(self.path)
+        if img is None:
+            print("image is not define")
+            return 0
         
+        img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        bbox = self.bbox
+        fruit = img_RGB[int(max((bbox[1]-50), 0)):int(min(bbox[3]+50, img.shape[0])), int(max((bbox[0]-50), 0)):int(min(bbox[2]+50, img.shape[1]))]
+        # cv2.imshow("1", fruit)
+        # cv2.waitKey(0)
+        
+        return fruit
