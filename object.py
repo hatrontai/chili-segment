@@ -5,6 +5,9 @@ from PIL import Image
 from pyzbar.pyzbar import decode
 from pathlib import Path
 
+from detete import model_detete, handle_detete
+from segment import model_segment
+
 def segm(img, threshold=56):
     # print(type(img))
     img = img.copy()
@@ -113,6 +116,27 @@ class Fruit(object):
         self.area_fruit = self.get_area()
         self.redness = self.get_redness()
         self.wrinkle = self.get_wrinkle()
+        self.polygons = self.get_polygon()
+
+    def get_img(self):
+        img = cv2.imread(self.path)
+        if img is None:
+            print("image is not define")
+            return 0
+        
+        img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        bbox = self.bbox
+        fruit = img_RGB[int(max((bbox[1]-50), 0)):int(min(bbox[3]+50, img.shape[0])), int(max((bbox[0]-50), 0)):int(min(bbox[2]+50, img.shape[1]))]
+        # cv2.imshow("1", fruit)
+        # cv2.waitKey(0)
+        
+        return fruit
+
+    def get_polygon(self):
+
+        polygons = model_segment(self.path)
+
+        return polygons
     
     def get_mask(self, use_closing = True, use_contour = True):
         img = self.img
@@ -286,42 +310,52 @@ class Fruit(object):
 
         return contour_line
 
+
+#####################
+#####################
+#####################
+
+def sort_bboxes_by_variance(items):
+    # 1. Trích xuất tất cả x và y để tính phương sai
+    x_coords = [item[0] for item in items]
+    y_coords = [item[1] for item in items]
+    
+    # Tính phương sai (Variance)
+    # Nếu danh sách ít hơn 2 phần tử, phương sai mặc định là 0
+    var_x = max(x_coords) - min(x_coords) if len(x_coords) > 1 else 0
+    var_y = max(x_coords) - min(y_coords) if len(y_coords) > 1 else 0
+    
+    # 2. Định nghĩa hàm sắp xếp tùy chỉnh
+    if var_x > var_y:
+        items.sort(key=lambda b: b[0])
+    else:
+        items.sort(key=lambda b: b[1])
+        
+    return items
+
 class Images(object):
     def __init__(self, path):
         self.path = path
         self.ratio,_ = qr_code(path)
-        self.image = self.get_img()
-        self.width_img, self.height_img = Image.open()
-        self.bboxs = self.get_bbox()
+        self.image = Image.open(path)
+        self.width_img, self.height_img = self.image.size
+        self.bboxs = self.get_bbox(use_model= False)
         self.num_fruit = len(self.bboxs)
-
+        self.fruits = [self.get_item(i) for i in range(len(self.bboxs))]
 
     def get_item(self, index):
-        # x, y, w, h = self.bboxs[index]
-        # bbox = (x, y, x + w, y + h)
-
-        # cropped_img = img.crop(bbox)
-
-        # ????
-        fruit = Fruit(path, index, self.ratio, self.bboxs[index])
+        fruit = Fruit(self.path, index, self.ratio, self.bboxs[index])
 
         return fruit
 
-    def get_bbox(self):
-        # ????
-        return bbox
+    def get_bbox(self, use_model=True):
+        # Bbox for each chili in the image (x, y, w, h)
 
+        if use_model:
+            bboxs = model_detete(self.path)
+        else:
+            bboxs = handle_detete(self.path)
 
-    def get_img(self):
-        img = cv2.imread(self.path)
-        if img is None:
-            print("image is not define")
-            return 0
-        
-        img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        bbox = self.bbox
-        fruit = img_RGB[int(max((bbox[1]-50), 0)):int(min(bbox[3]+50, img.shape[0])), int(max((bbox[0]-50), 0)):int(min(bbox[2]+50, img.shape[1]))]
-        # cv2.imshow("1", fruit)
-        # cv2.waitKey(0)
-        
-        return fruit
+        bboxs = sort_bboxes_by_variance(bboxs)
+
+        return bboxs
