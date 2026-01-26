@@ -177,7 +177,7 @@ class Fruit(object):
         img = self.img
         bbox = self.bbox
         ratio = self.ratio
-        width_bbox = round((bbox[2] - bbox[0])*ratio, 2)``
+        width_bbox = round((bbox[2] - bbox[0])*ratio, 2)
         height_bbox = round((bbox[3] - bbox[1])*ratio, 2)
         hsv_img = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
         low_green = np.array([25, 20, 20])

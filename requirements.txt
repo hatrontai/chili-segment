@@ -1,5 +1,6 @@
 pandas
-cv2
+pillow
+opencv-python
 plt
 pyzbar
-math
+numpy
