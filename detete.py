@@ -1,5 +1,8 @@
 from PIL import Image
 import cv2
+import numpy as np
+
+
 
 def model_detete(path):
     image = Image.open(path)
