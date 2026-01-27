@@ -106,9 +106,9 @@ class Fruit(object):
         self.id = index
         self.ratio = ratio
         self.path = path
-        self.bbox = bbox
         self.name = self.get_name()
-        self.img = self.get_img()
+        self.img = self.get_img(bbox)
+        self.bboxs, self.polygons = self.get_polygon()
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
         self.mask = self.get_mask()
         self.number_seeds = 0
@@ -116,16 +116,15 @@ class Fruit(object):
         self.area_fruit = self.get_area()
         self.redness = self.get_redness()
         self.wrinkle = self.get_wrinkle()
-        self.polygons = self.get_polygon()
+    
 
-    def get_img(self):
+    def get_img(self, bbox):
         img = cv2.imread(self.path)
         if img is None:
             print("image is not define")
             return 0
         
         img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        bbox = self.bbox
         fruit = img_RGB[int(max((bbox[1]-50), 0)):int(min(bbox[3]+50, img.shape[0])), int(max((bbox[0]-50), 0)):int(min(bbox[2]+50, img.shape[1]))]
         # cv2.imshow("1", fruit)
         # cv2.waitKey(0)
@@ -133,8 +132,7 @@ class Fruit(object):
         return fruit
 
     def get_polygon(self):
-
-        polygons = model_segment(self.path)
+        polygons = model_segment(self.path, self.img)
 
         return polygons
     
