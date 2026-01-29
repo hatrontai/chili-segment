@@ -19,6 +19,8 @@ def model_segment(path):
 
     return polygons
 
+
+
 def modify_output(polygons):
 
     return polygons
