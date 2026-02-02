@@ -1,26 +1,24 @@
 from PIL import Image
+
 from ultralytics import YOLO
 
 
 
-def model_segment(path):
-    image = Image.open(path)
-    model = YOLO("yolov8n.pt")
-
-    result = model(image)
-    r = result[0]
-    
-    bboxs = r.boxes     # bounding boxes
-    polygons = r.masks     # segmentation masks
-    cls = r.probs     # classification (nếu có)
-    cls_name = r.names     # mapping class_id → tên class
-
-    polygons = modify_output(polygons)
-
-    return polygons
+class SegmentModel:
+    def __init__(self, weight_path="./pretrain/yolov8_segment_v1.pt", model_name='yolo'):
+        if model_name == 'yolo':
+            self.model = YOLO(weight_path)
+        elif model_name == 'rcnn':
+            print('please set model name is yolo')
+        else:
+            print('please set model name is yolo')
 
 
+    def predict(self, image):
+        result = self.model(image)
+        
+        return result[0].masks
 
-def modify_output(polygons):
+    def modify_output(polygons):
 
-    return polygons
+        return polygons

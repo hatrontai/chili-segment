@@ -5,35 +5,8 @@ from PIL import Image
 from pyzbar.pyzbar import decode
 from pathlib import Path
 
-from detete import model_detete, handle_detete
-from segment import model_segment
-
-def segm(img, threshold=56):
-    # print(type(img))
-    img = img.copy()
-    img = np.array(img)
-    img = np.where(img >= threshold, 255, 0)
-
-    return img
-
-def calculate_angle(p1, p2, p3):
-    
-    # Tính các véc-tơ
-    v1 = (p2[0] - p1[0], p2[1] - p1[1])
-    v2 = (p3[0] - p2[0], p3[1] - p2[1])
-    
-    # Tính độ lớn của các véc-tơ
-    norm_v1 = math.sqrt(v1[0]**2 + v1[1]**2)
-    norm_v2 = math.sqrt(v2[0]**2 + v2[1]**2)
-    
-    # Tính tích vô hướng của hai véc-tơ
-    dot_product = v1[0] * v2[0] + v1[1] * v2[1]
-    
-    # Tính góc bằng công thức tích vô hướng
-    angle = math.acos(dot_product / (norm_v1 * norm_v2))
-    # angle_deg = angle_rad * 180 / math.pi
-
-    return angle, norm_v1, norm_v2
+from detete import DetectModel
+from segment import SegmentModel
 
 def find_centroid(matrix):
     rows = len(matrix)
@@ -55,60 +28,122 @@ def find_centroid(matrix):
     
     return centroid_x, centroid_y
 
+def calculate_angle(p1, p2, p3):
+    
+    # Tính các véc-tơ
+    v1 = (p2[0] - p1[0], p2[1] - p1[1])
+    v2 = (p3[0] - p2[0], p3[1] - p2[1])
+    
+    # Tính độ lớn của các véc-tơ
+    norm_v1 = math.sqrt(v1[0]**2 + v1[1]**2)
+    norm_v2 = math.sqrt(v2[0]**2 + v2[1]**2)
+    
+    # Tính tích vô hướng của hai véc-tơ
+    dot_product = v1[0] * v2[0] + v1[1] * v2[1]
+    
+    # Tính góc bằng công thức tích vô hướng
+    angle = math.acos(dot_product / (norm_v1 * norm_v2))
+    # angle_deg = angle_rad * 180 / math.pi
+
+    return angle, norm_v1, norm_v2
 
 def korean_imread(filename, flags= cv2.IMREAD_COLOR, dtype= np.uint8):
-    try:
-        n = np.fromfile(filename, dtype= dtype)
-        img = cv2.imdecode(n, flags)
-
-        return img
-    
-    except Exception as e:
-        print(e)
-
-        return None
-    
-
-def qr_code(path):
-    org = korean_imread(path)
-    gray = cv2.cvtColor(org, cv2.COLOR_BGR2GRAY)
-    H, W = gray.shape
-    qr_codes = decode(gray)
-    if qr_codes:
-        qr_code = qr_codes[0]
-
-        x,y,w,h = qr_code.rect
-
         try:
-            SF = 10/((w+h)/2)
-            # print("ratio (mm/pixel): ", SF)
+            n = np.fromfile(filename, dtype= dtype)
+            img = cv2.imdecode(n, flags)
 
-            return SF, y+h
+            return img
         
         except Exception as e:
-            print("Error:", e)
-            print(path)
+            print(e)
 
             return None
 
 
-def cal_number_seeds(bbox, center_seeds):
-    center_seeds = np.array(center_seeds)
-    if len(center_seeds) == 0:
-        return 0
-    mask = (center_seeds[:, 0] >= int(bbox[0])) & (center_seeds[:, 0] <= int(bbox[2])) & (center_seeds[:, 1] >= int(bbox[1])) & (center_seeds[:, 1] <= int(bbox[3]))
-    points_in_bbox = center_seeds[mask]
-    number_seeds = len(points_in_bbox)
-    return number_seeds
+class Images(object):
+    def __init__(self, path, model_detect, model_segment):
+        self.path = path
+        self.model_segment = model_segment
+        self.model_detect = model_detect
+        self.ratio,_ = self.qr_code(path)
+        self.image = Image.open(path)
+        self.width_img, self.height_img = self.image.size
+        self.bboxs = self.get_bbox(use_model= False)
+        self.num_fruit = len(self.bboxs)
+        self.fruits = [self.get_item(i) for i in range(len(self.bboxs))]
 
-class Fruit(object):
+    def get_item(self, index):
+        fruit = Fruit(self.path, index, self.ratio, self.bboxs[index])
+
+        return fruit
+
+    def get_bbox(self):
+        # Bbox for each chili in the image (x, y, w, h)
+
+        bboxs = self.model_detect.predict(self.path)
+        bboxs = self.sort_bboxes_by_variance(bboxs)
+
+        return bboxs
+
+    def qr_code(self):
+        path = self.path
+        org = korean_imread(path)
+        gray = cv2.cvtColor(org, cv2.COLOR_BGR2GRAY)
+        H, W = gray.shape
+        qr_codes = decode(gray)
+        if qr_codes:
+            qr_code = qr_codes[0]
+
+            x,y,w,h = qr_code.rect
+
+            try:
+                SF = 10/((w+h)/2)
+                # print("ratio (mm/pixel): ", SF)
+
+                return SF, y+h
+            
+            except Exception as e:
+                print("Error:", e)
+                print(path)
+
+                return None
+
+
+    def cal_number_seeds(bbox, center_seeds):
+        center_seeds = np.array(center_seeds)
+        if len(center_seeds) == 0:
+            return 0
+        mask = (center_seeds[:, 0] >= int(bbox[0])) & (center_seeds[:, 0] <= int(bbox[2])) & (center_seeds[:, 1] >= int(bbox[1])) & (center_seeds[:, 1] <= int(bbox[3]))
+        points_in_bbox = center_seeds[mask]
+        number_seeds = len(points_in_bbox)
+        return number_seeds
+
+    def sort_bboxes_by_variance(items):
+        # 1. Trích xuất tất cả x và y để tính phương sai
+        x_coords = [item[0] for item in items]
+        y_coords = [item[1] for item in items]
+        
+        # Tính phương sai (Variance)
+        # Nếu danh sách ít hơn 2 phần tử, phương sai mặc định là 0
+        var_x = max(x_coords) - min(x_coords) if len(x_coords) > 1 else 0
+        var_y = max(x_coords) - min(y_coords) if len(y_coords) > 1 else 0
+        
+        # 2. Định nghĩa hàm sắp xếp tùy chỉnh
+        if var_x > var_y:
+            items.sort(key=lambda b: b[0])
+        else:
+            items.sort(key=lambda b: b[1])
+            
+        return items
+
+class Fruit(Images):
     def __init__(self, path, index, ratio, bbox):
         self.id = index
         self.ratio = ratio
         self.path = path
         self.name = self.get_name()
         self.img = self.get_img(bbox)
-        self.bboxs, self.polygons = self.get_polygon()
+        self.bboxs, self.polygons = self.get_segment()
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
         self.mask = self.get_mask()
         self.number_seeds = 0
@@ -131,10 +166,20 @@ class Fruit(object):
         
         return fruit
 
-    def get_polygon(self):
-        polygons = model_segment(self.path, self.img)
+    def get_segment(self):
+        polygons = self.model_segment(self.path, self.img)
 
         return polygons
+    
+    def segm(self, threshold=56):
+        image = self.img
+        img_red = np.array(image[:, :, 0])
+        # print(type(img))
+        img = img_red.copy()
+        img = np.array(img)
+        img = np.where(img >= threshold, 255, 0)
+
+        return img
     
     def get_mask(self, use_closing = True, use_contour = True):
         img = self.img
@@ -144,7 +189,7 @@ class Fruit(object):
         img_red = np.array(img[:, :, 0])
         hist = cv2.calcHist([img_red], [0], None, [256], [0, 256])
 
-        fruit_mask = segm(img_red, hist.argmax() + 16)
+        fruit_mask = self.segm(hist.argmax() + 16)
         fruit_mask = fruit_mask.astype(np.uint8)
         # cv2.imshow("3", fruit_mask)
 
@@ -309,51 +354,3 @@ class Fruit(object):
         return contour_line
 
 
-#####################
-#####################
-#####################
-
-def sort_bboxes_by_variance(items):
-    # 1. Trích xuất tất cả x và y để tính phương sai
-    x_coords = [item[0] for item in items]
-    y_coords = [item[1] for item in items]
-    
-    # Tính phương sai (Variance)
-    # Nếu danh sách ít hơn 2 phần tử, phương sai mặc định là 0
-    var_x = max(x_coords) - min(x_coords) if len(x_coords) > 1 else 0
-    var_y = max(x_coords) - min(y_coords) if len(y_coords) > 1 else 0
-    
-    # 2. Định nghĩa hàm sắp xếp tùy chỉnh
-    if var_x > var_y:
-        items.sort(key=lambda b: b[0])
-    else:
-        items.sort(key=lambda b: b[1])
-        
-    return items
-
-class Images(object):
-    def __init__(self, path):
-        self.path = path
-        self.ratio,_ = qr_code(path)
-        self.image = Image.open(path)
-        self.width_img, self.height_img = self.image.size
-        self.bboxs = self.get_bbox(use_model= False)
-        self.num_fruit = len(self.bboxs)
-        self.fruits = [self.get_item(i) for i in range(len(self.bboxs))]
-
-    def get_item(self, index):
-        fruit = Fruit(self.path, index, self.ratio, self.bboxs[index])
-
-        return fruit
-
-    def get_bbox(self, use_model=True):
-        # Bbox for each chili in the image (x, y, w, h)
-
-        if use_model:
-            bboxs = model_detete(self.path)
-        else:
-            bboxs = handle_detete(self.path)
-
-        bboxs = sort_bboxes_by_variance(bboxs)
-
-        return bboxs
