@@ -5,7 +5,7 @@ from PIL import Image
 from pyzbar.pyzbar import decode
 from pathlib import Path
 
-from detete import DetectModel
+from detect import DetectModel
 from segment import SegmentModel
 
 def find_centroid(matrix):
@@ -60,7 +60,7 @@ def korean_imread(filename, flags= cv2.IMREAD_COLOR, dtype= np.uint8):
             return None
 
 
-class Images(object):
+class Fruits(object):
     def __init__(self, path, model_detect, model_segment):
         self.path = path
         self.model_segment = model_segment
@@ -73,9 +73,9 @@ class Images(object):
         self.fruits = [self.get_item(i) for i in range(len(self.bboxs))]
 
     def get_item(self, index):
-        fruit = Fruit(self.path, index, self.ratio, self.bboxs[index])
+        chili = Chili(index)
 
-        return fruit
+        return chili
 
     def get_bbox(self):
         # Bbox for each chili in the image (x, y, w, h)
@@ -136,13 +136,11 @@ class Images(object):
             
         return items
 
-class Fruit(Images):
-    def __init__(self, path, index, ratio, bbox):
+class Chili(Fruits):
+    def __init__(self, index):
         self.id = index
-        self.ratio = ratio
-        self.path = path
         self.name = self.get_name()
-        self.img = self.get_img(bbox)
+        self.img = self.get_img(self.bboxs[index])
         self.bboxs, self.polygons = self.get_segment()
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
         self.mask = self.get_mask()
