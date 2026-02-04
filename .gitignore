@@ -1,0 +1,4 @@
+# Ignore AI model weights
+pretrain/*.pt
+tmp/*
+todotask.txt
