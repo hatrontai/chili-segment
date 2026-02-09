@@ -5,45 +5,38 @@ from PIL import Image
 from pyzbar.pyzbar import decode
 from pathlib import Path
 
-from detect import DetectModel
-from segment import SegmentModel
+# from src.detect import DetectModel
+# from src.segment import SegmentModel
 
 def find_centroid(matrix):
+    if not matrix or not matrix[0]:
+        return None
+
     rows = len(matrix)
     cols = len(matrix[0])
-    
-    non_zero_points = []
-    
-    for i in range(rows):
-        for j in range(cols):
-            if matrix[i][j] > 0:
-                non_zero_points.append((j, i))  # Lưu ý thứ tự (x, y)
-    
-    if not non_zero_points:
 
+    points = []
+    for y in range(rows):
+        for x in range(cols):
+            if matrix[y][x] > 0:
+                points.append((x, y))
+
+    if not points:
         return None
-    
-    centroid_x = sum(x for x, y in non_zero_points) / len(non_zero_points)
-    centroid_y = sum(y for x, y in non_zero_points) / len(non_zero_points)
-    
-    return centroid_x, centroid_y
+
+    cx = sum(x for x, y in points) / len(points)
+    cy = sum(y for x, y in points) / len(points)
+
+    return cx, cy
+
 
 def calculate_angle(p1, p2, p3):
-    
-    # Tính các véc-tơ
     v1 = (p2[0] - p1[0], p2[1] - p1[1])
     v2 = (p3[0] - p2[0], p3[1] - p2[1])
-    
-    # Tính độ lớn của các véc-tơ
     norm_v1 = math.sqrt(v1[0]**2 + v1[1]**2)
     norm_v2 = math.sqrt(v2[0]**2 + v2[1]**2)
-    
-    # Tính tích vô hướng của hai véc-tơ
     dot_product = v1[0] * v2[0] + v1[1] * v2[1]
-    
-    # Tính góc bằng công thức tích vô hướng
     angle = math.acos(dot_product / (norm_v1 * norm_v2))
-    # angle_deg = angle_rad * 180 / math.pi
 
     return angle, norm_v1, norm_v2
 
@@ -68,20 +61,19 @@ class Fruits(object):
         self.ratio,_ = self.qr_code(path)
         self.image = Image.open(path)
         self.width_img, self.height_img = self.image.size
-        self.bboxs = self.get_bbox(use_model= False)
-        self.num_fruit = len(self.bboxs)
-        self.fruits = [self.get_item(i) for i in range(len(self.bboxs))]
+        self.box_cut = self.get_bbox_chili(use_model= False)
+        self.num_fruit = len(self.box_cut)
+        self.fruits = [self.get_item(i) for i in range(len(self.box_cut))]
 
     def get_item(self, index):
         chili = Chili(index)
 
         return chili
 
-    def get_bbox(self):
+    def get_bbox_chili(self):
         # Bbox for each chili in the image (x, y, w, h)
-
+        # bboxs is a list of many bbox
         bboxs = self.model_detect.predict(self.path)
-        bboxs = self.sort_bboxes_by_variance(bboxs)
 
         return bboxs
 
@@ -109,7 +101,7 @@ class Fruits(object):
                 return None
 
 
-    def cal_number_seeds(bbox, center_seeds):
+    def cal_number_seeds(self, bbox, center_seeds):
         center_seeds = np.array(center_seeds)
         if len(center_seeds) == 0:
             return 0
@@ -118,30 +110,13 @@ class Fruits(object):
         number_seeds = len(points_in_bbox)
         return number_seeds
 
-    def sort_bboxes_by_variance(items):
-        # 1. Trích xuất tất cả x và y để tính phương sai
-        x_coords = [item[0] for item in items]
-        y_coords = [item[1] for item in items]
-        
-        # Tính phương sai (Variance)
-        # Nếu danh sách ít hơn 2 phần tử, phương sai mặc định là 0
-        var_x = max(x_coords) - min(x_coords) if len(x_coords) > 1 else 0
-        var_y = max(x_coords) - min(y_coords) if len(y_coords) > 1 else 0
-        
-        # 2. Định nghĩa hàm sắp xếp tùy chỉnh
-        if var_x > var_y:
-            items.sort(key=lambda b: b[0])
-        else:
-            items.sort(key=lambda b: b[1])
-            
-        return items
 
 class Chili(Fruits):
     def __init__(self, index):
         self.id = index
         self.name = self.get_name()
         self.img = self.get_img(self.bboxs[index])
-        self.bboxs, self.polygons = self.get_segment()
+        self.polygons = self.get_polygons()
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
         self.mask = self.get_mask()
         self.number_seeds = 0
@@ -159,20 +134,21 @@ class Chili(Fruits):
         
         img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         fruit = img_RGB[int(max((bbox[1]-50), 0)):int(min(bbox[3]+50, img.shape[0])), int(max((bbox[0]-50), 0)):int(min(bbox[2]+50, img.shape[1]))]
-        # cv2.imshow("1", fruit)
-        # cv2.waitKey(0)
         
         return fruit
 
-    def get_segment(self):
-        polygons = self.model_segment(self.path, self.img)
+    def get_polygons(self):
+        results = self.model_segment.predict(self.img)
+        r = results[0]
+        
+        masks = r.masks.data
+        polygons = r.masks.xy
 
         return polygons
     
     def segm(self, threshold=56):
         image = self.img
         img_red = np.array(image[:, :, 0])
-        # print(type(img))
         img = img_red.copy()
         img = np.array(img)
         img = np.where(img >= threshold, 255, 0)
@@ -181,21 +157,17 @@ class Chili(Fruits):
     
     def get_mask(self, use_closing = True, use_contour = True):
         img = self.img
-        # cv2.imshow("", img)
-        # cv2.imshow("2", img)
         
         img_red = np.array(img[:, :, 0])
         hist = cv2.calcHist([img_red], [0], None, [256], [0, 256])
 
         fruit_mask = self.segm(hist.argmax() + 16)
         fruit_mask = fruit_mask.astype(np.uint8)
-        # cv2.imshow("3", fruit_mask)
 
         if use_closing:
             kernel = np.ones((10, 10), np.uint8)
             fruit_mask = cv2.morphologyEx(fruit_mask, cv2.MORPH_CLOSE, kernel, iterations=1)
             fruit_mask = fruit_mask.astype(np.uint8)
-        # cv2.imshow("4", fruit_mask)
         if use_contour:
             contours, hierarchy = cv2.findContours(fruit_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             contour_areas = [cv2.contourArea(cnt) for cnt in contours]
@@ -229,7 +201,6 @@ class Chili(Fruits):
         if centroid_pedicel != None:
             d1 = np.abs(len(green_mask) - 2*int(centroid_pedicel[1]))
             d2 = np.abs(len(green_mask[0]) - 2*int(centroid_pedicel[0]))
-            # print(green_mask.shape, centroid_pedicel, d1, d2)
             if d1 < d2:
                 img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
                 self.img = img
@@ -296,11 +267,8 @@ class Chili(Fruits):
 
     def get_redness(self):
         mask_fruit = self.mask
-        # cv2.imshow("", self.img)
-        # cv2.waitKey(0)
         hsv_img = cv2.cvtColor(self.img, cv2.COLOR_RGB2HSV)
         hue = np.array(hsv_img[:, :, 0].astype(int))
-        # print(hue.shape, mask_fruit.shape)
         hue = np.where(mask_fruit > 0, np.abs(90 - hue), 0)
         hue = hue - 60
         hue = np.where(hue >= 0, hue, 0)
@@ -319,13 +287,6 @@ class Chili(Fruits):
         smoothness = length_L2/length_L1
         wrinkle = round(1 - smoothness, 5)
 
-
-        # wrinkle = 0
-        # for i in range(len(contour_line)):
-        #     angle, d1, d2 = calculate_angle(contour_line[i-2][0], contour_line[i-1][0], contour_line[i][0])
-        #     wrinkle += angle
-        # wrinkle = round(wrinkle/len(contour_line), 2)
-
         return wrinkle
 
     def get_hist(self):
@@ -336,7 +297,7 @@ class Chili(Fruits):
         width = 800
         hist_image = np.zeros((height, width, 3), dtype=np.uint8)
         hist = cv2.normalize(hist, hist, alpha=0, beta=height, norm_type=cv2.NORM_MINMAX)
-        # Draw the hist on the empty image
+
         for i in range(256):
             cv2.line(hist_image, (i, height), (i, int(height - hist[i])), (255, 255, 255), 1)
     

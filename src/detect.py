@@ -33,7 +33,6 @@ def get_mask(img,threshold = 16, use_closing = True, use_contour = True):
         contour_areas = [cv2.contourArea(cnt) for cnt in contours]
         max_area = max(contour_areas)
         fruit_mask = np.zeros_like(fruit_mask)
-        contour_line = np.zeros_like(fruit_mask)
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area >= max_area:
@@ -41,11 +40,10 @@ def get_mask(img,threshold = 16, use_closing = True, use_contour = True):
 
     return fruit_mask
 
-
 class DetectModel:
-    def __init__(self, model_name='none', weight_path= None):
+    def __init__(self, model_name='none', weight_path= '../pretrain/yolov7_detect_v1.pt', device='cpu'):
         if model_name == 'yolo':
-            self.model = YOLO(weight_path)
+            self.model = YOLO(weight_path, task="detect")
             self.use_model = True
             print('Use model yolo for detect ech chili fruit')
         elif model_name == 'none':
@@ -55,30 +53,31 @@ class DetectModel:
             self.use_model = False
             print('please set model name is yolo')
 
+        self.device = device
 
-    def model_detect(self, image):
-        bboxs = self.model(image)
-
+    def model_detect(self, images):
+        results = self.model.predict(
+                    source=images,  
+                    conf=0.9,
+                    iou=0.7,
+                    device=self.device,  
+                    save=False,           
+                    show=False
+                )
+        bboxs = results.bboxes
         return bboxs
 
     def handle_detect(self, image):
         ep = EP
         img_RGB = image.copy()
-        img_red = img_RGB[:, :, 0]
         img_mask = get_mask(img_RGB, 22 , True, False)
         
         contours, hierarchy = cv2.findContours(img_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contour_areas = [cv2.contourArea(cnt) for cnt in contours]
-        max_area = max(contour_areas)
-        fruit_mask = img_RGB[540:, :, :]
-        # masks = []
+        fruit_mask = img_RGB
         bboxs = []
-        # crop_images = []
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area >= 10000:
-                # print(cnt)
-                # masks.append(cnt)
                 cv2.drawContours(fruit_mask, [cnt], -1, (255, 255, 255), 2)
                 length_L1 = cv2.arcLength(cnt, True)
                 cnt = cv2.approxPolyDP(cnt, ep*length_L1, True)
@@ -87,12 +86,8 @@ class DetectModel:
                 x, y, w, h = cv2.boundingRect(np.array(contour_or))
                 bbox = [x, y, w, h]
                 bboxs.append(bbox)
-                # crop_image = image[y-50:y+h+50, x-50:x+w+50]
-
-                # crop_images.append(crop_image)
-                # masks.append(contour_or)
                 
-        return bboxs
+        return fruit_mask, bboxs
 
     
     def predict(self, path):
@@ -103,6 +98,20 @@ class DetectModel:
         if self.use_model:
             bboxs = self.model_detect(image_crop)
         else:
-            bboxs = self.handle_detect(image_crop)
+            _, bboxs = self.handle_detect(image_crop)
         
+        bboxs = self.sort_bboxes_by_variance(bboxs)
+        return bboxs
+    
+    def sort_bboxes_by_variance(self, bboxs):
+        x_coords = [bbox[0] for bbox in bboxs]
+        y_coords = [bbox[1] for bbox in bboxs]
+        var_x = max(x_coords) - min(x_coords) if len(x_coords) > 1 else 0
+        var_y = max(x_coords) - min(y_coords) if len(y_coords) > 1 else 0
+        
+        if var_x > var_y:
+            bboxs.sort(key=lambda b: b[0])
+        else:
+            bboxs.sort(key=lambda b: b[1])
+            
         return bboxs
