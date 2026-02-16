@@ -4,5 +4,6 @@ opencv-python
 plt
 pyzbar
 numpy
+shapely
 
 ultralytics

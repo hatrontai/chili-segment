@@ -3,13 +3,29 @@ import math
 import cv2
 from PIL import Image
 from pyzbar.pyzbar import decode
+import matplotlib.pyplot as plt
 from pathlib import Path
 
 # from src.detect import DetectModel
 # from src.segment import SegmentModel
+CLASS_NAMES = {
+    0: "seed",
+    1: "outer",
+    2: "placenta",
+    3: "endocrap",
+    4: "chili"
+}
+
+CLASS_COLORS = {
+    0: (125, 0, 25),      # seed - đỏ
+    1: (0, 155, 0),      # outer - xanh lá
+    2: (55, 0, 155),      # placenta - xanh dương
+    3: (0, 155, 155),    # endocrap - vàng
+    4: (155, 0, 155)     # chili - tím
+}
 
 def find_centroid(matrix):
-    if not matrix or not matrix[0]:
+    if matrix is None or matrix.size == 0:
         return None
 
     rows = len(matrix)
@@ -52,23 +68,84 @@ def korean_imread(filename, flags= cv2.IMREAD_COLOR, dtype= np.uint8):
 
             return None
 
+def draw_full_mask_with_labels(image, objects, alpha=0.5):
+
+    overlay = image.copy()
+    output = image.copy()
+
+    # 🔥 Sắp xếp theo class_id giảm dần
+    # để class_id nhỏ (seed) vẽ sau cùng → nằm trên
+    objects_sorted = sorted(objects, key=lambda x: x["class_id"], reverse=True)
+
+    for idx, obj in enumerate(objects_sorted):
+
+        class_id = obj["class_id"]
+        class_name = obj["class_name"]
+        points = obj["points"]
+
+        pts = np.array(points, dtype=np.float32)
+        pts = np.round(pts).astype(np.int32).reshape((-1, 1, 2))
+
+        color = CLASS_COLORS[class_id]
+
+        # Vẽ full mask
+        cv2.fillPoly(overlay, [pts], color)
+
+        # Tính centroid để đặt text
+        M = cv2.moments(pts)
+        if M["m00"] != 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+        else:
+            cx, cy = pts[0][0]
+
+        label = f"{idx+1}. {class_name}"
+
+        cv2.putText(
+            overlay,
+            label,
+            (cx, cy),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA
+        )
+
+    cv2.addWeighted(overlay, alpha, output, 1 - alpha, 0, output)
+
+    return output
 
 class Fruits(object):
     def __init__(self, path, model_detect, model_segment):
         self.path = path
         self.model_segment = model_segment
         self.model_detect = model_detect
-        self.ratio,_ = self.qr_code(path)
+        self.ratio,_ = self.qr_code()
         self.image = Image.open(path)
         self.width_img, self.height_img = self.image.size
-        self.box_cut = self.get_bbox_chili(use_model= False)
+        self.box_cut = self.get_bbox_chili()
         self.num_fruit = len(self.box_cut)
-        self.fruits = [self.get_item(i) for i in range(len(self.box_cut))]
+        self.items = [self.get_item(i) for i in range(len(self.box_cut))]
 
     def get_item(self, index):
-        chili = Chili(index)
-
+        chili = Chili(self.path, index, self.model_segment, self.box_cut[index], self.ratio)
+        print(index,self.box_cut[index])
         return chili
+
+    def show(self):
+        plt.figure(figsize=(20,10))
+
+        for i in range(len(self.items)):
+            img_drawn = draw_full_mask_with_labels(self.items[i].img, self.items[i].polygons)
+
+            plt.subplot(1, 6, i+1)
+            plt.imshow(img_drawn)
+            plt.title(str(self.items[i].name), fontsize=12)
+            plt.axis("off")
+
+        plt.tight_layout()
+        plt.show()
 
     def get_bbox_chili(self):
         # Bbox for each chili in the image (x, y, w, h)
@@ -112,10 +189,15 @@ class Fruits(object):
 
 
 class Chili(Fruits):
-    def __init__(self, index):
+    def __init__(self, path, index, model_segment, bbox, ratio):
+        self.path = path
+        self.bbox = bbox
+        self.model_segment = model_segment
         self.id = index
+        self.ratio = ratio
         self.name = self.get_name()
-        self.img = self.get_img(self.bboxs[index])
+        self.img = self.get_img(self.bbox)
+        self.rseg = model_segment.predict(self.img)
         self.polygons = self.get_polygons()
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
         self.mask = self.get_mask()
@@ -128,21 +210,22 @@ class Chili(Fruits):
 
     def get_img(self, bbox):
         img = cv2.imread(self.path)
+        H, W, _ = img.shape
+
         if img is None:
             print("image is not define")
             return 0
         
         img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        fruit = img_RGB[int(max((bbox[1]-50), 0)):int(min(bbox[3]+50, img.shape[0])), int(max((bbox[0]-50), 0)):int(min(bbox[2]+50, img.shape[1]))]
+        x, y, w, h = bbox  
+        # print(x,y,w,h)
+        fruit = img_RGB[max(0, y-50):min(H,y+h+50), max(0,x-50):min(W,x+w+50)]
         
         return fruit
 
     def get_polygons(self):
-        results = self.model_segment.predict(self.img)
-        r = results[0]
-        
-        masks = r.masks.data
-        polygons = r.masks.xy
+        results = self.rseg
+        polygons = results['polygons']
 
         return polygons
     
