@@ -55,7 +55,7 @@ def inference(args):
         name_image = Path(image_path).stem
         chilis = Fruits(image_path, model_detect=model_detect, model_segment=model_segment)
 
-        for chili in chilis.fruits:
+        for chili in chilis.items:
             row = {
                 'id': chili.id,
                 'name_root': name_image,
@@ -82,8 +82,8 @@ def main():
     args = parse_args()
 
     print("Arguments:", args)
-    inference(args)
-    
+    results = inference(args)
+    print(results)
 
 
 if __name__ == "__main__":
