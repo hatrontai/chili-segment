@@ -40,13 +40,17 @@ def inference(args):
     model_segment = SegmentModel(weight_path=args.weight_seg,model_name=args.name_model_seg, device=args.device)
     
     data_dir = args.input_path
+
+    if not os.path.exists(data_dir):
+        print("input path is not exist", data_dir)
+
     if os.path.isdir(data_dir):
-        image_paths = glob.glob("images/*.png") + \
-              glob.glob("images/*.jpg") + \
-              glob.glob("images/*.jpeg") + \
-              glob.glob("images/*.PNG") + \
-              glob.glob("images/*.JPG") + \
-              glob.glob("images/*.JPEG")
+        image_paths = glob.glob(f"{data_dir}/*.png") + \
+              glob.glob(f"{data_dir}/*.jpg") + \
+              glob.glob(f"{data_dir}/*.jpeg") + \
+              glob.glob(f"{data_dir}/*.PNG") + \
+              glob.glob(f"{data_dir}/*.JPG") + \
+              glob.glob(f"{data_dir}/*.JPEG")
     else:
         image_paths = [data_dir]
     
