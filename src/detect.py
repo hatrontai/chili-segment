@@ -40,6 +40,14 @@ def get_mask(img,threshold = 16, use_closing = True, use_contour = True):
 
     return fruit_mask
 
+def check_object(img):
+    mask = get_mask(img, use_closing=False, use_contour=False)
+
+    if mask.sum() > 0:
+        return True
+    else:
+        return False
+
 class DetectModel:
     def __init__(self, model_name='none', weight_path= '../pretrain/yolov7_detect_v1.pt', device='cpu'):
         if model_name == 'yolo':
@@ -70,6 +78,7 @@ class DetectModel:
     def handle_detect(self, image):
         ep = EP
         img_RGB = image.copy()
+        W, H = img_RGB.shape[1], img_RGB.shape[0]
         img_mask = get_mask(img_RGB, 22 , True, False)
         
         contours, hierarchy = cv2.findContours(img_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -85,7 +94,9 @@ class DetectModel:
                 contour_or = [[p[0],p[1]+540] for p in contour]
                 x, y, w, h = cv2.boundingRect(np.array(contour_or))
                 bbox = [x, y, w, h]
-                bboxs.append(bbox)
+                x1, y1, x2, y2 = max(0,x-50), max(0, y-50), min(W,x+w+50),min(H,y+h+50)
+                if check_object(img_RGB[y1:y2, x1:x2]):
+                    bboxs.append(bbox)
                 
         return fruit_mask, bboxs
 

@@ -196,7 +196,7 @@ class Chili(Fruits):
         self.id = index
         self.ratio = ratio
         self.name = self.get_name()
-        self.img = self.get_img(self.bbox)
+        self.position,self.img = self.get_img(self.bbox)
         self.rseg = model_segment.predict(self.img)
         self.polygons = self.get_polygons()
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
@@ -219,9 +219,10 @@ class Chili(Fruits):
         img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         x, y, w, h = bbox  
         # print(x,y,w,h)
-        fruit = img_RGB[max(0, y-50):min(H,y+h+50), max(0,x-50):min(W,x+w+50)]
+        x1, x2, y1, y2 = max(0,x-50), min(W,x+w+50), max(0, y-50), min(H,y+h+50)
+        fruit = img_RGB[y1:y2, x1:x2]
         
-        return fruit
+        return [x1, x2, y1, y2], fruit
 
     def get_polygons(self):
         results = self.rseg
@@ -387,12 +388,13 @@ class Chili(Fruits):
         return hist_image
     
     def get_contour(self, ep= 0.005):
+        img = self.img.copy()
         contours, hierarchy = cv2.findContours(self.mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         contour_line = np.zeros_like(self.mask)
-        cv2.drawContours(contour_line, contours, -1, (255, 255, 255), 3)
+        cv2.drawContours(img, contours, -1, (255, 255, 255), 3)
         appox_contour = cv2.approxPolyDP(contours[0], ep*cv2.arcLength(contours[0], True), True)
         cv2.drawContours(contour_line, [appox_contour], -1, (255, 255, 255), 3, cv2.LINE_AA)
 
-        return contour_line
+        return contours, img
 
 
