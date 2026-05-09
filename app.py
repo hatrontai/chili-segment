@@ -55,4 +55,4 @@ if __name__ == "__main__":
     )
     
     # Launch the application
-    demo.launch()
+    demo.launch(server_name="0.0.0.0")

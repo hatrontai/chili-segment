@@ -11,7 +11,7 @@ CLASS_NAMES = {
     0: "seed",
     1: "outer",
     2: "placenta",
-    3: "endocrap",
+    3: "endocarp",
     4: "chili",
 }
 
@@ -19,10 +19,8 @@ class SegmentModel:
     def __init__(self, weight_path="../pretrain/yolov8_segment_v1.pt", model_name='yolo', device='cpu'):
         if model_name == 'yolo':
             self.model = YOLO(weight_path, task='segment')
-        elif model_name == 'rcnn':
-            print('please set model name is yolo')
         else:
-            print('please set model name is yolo')
+            raise ValueError("Unsupported model_name. Please set model_name to 'yolo'.")
 
         self.device = device
 
@@ -341,7 +339,7 @@ class SegmentModel:
             print(f"Warning: Error smoothing polygon: {e}")
             return None
 
-    #Process mask for class 'endocrap'
+    #Process mask for class 'endocarp'
     def _process_yolo_masks(self, masks_data, img_width, img_height, target_class=3, 
                           epsilon_factor=0.002, min_dist=4.0):
         #Process masks

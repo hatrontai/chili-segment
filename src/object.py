@@ -12,7 +12,7 @@ CLASS_NAMES = {
     0: "seed",
     1: "outer",
     2: "placenta",
-    3: "endocrap",
+    3: "endocarp",
     4: "chili"
 }
 
@@ -20,7 +20,7 @@ CLASS_COLORS = {
     0: (125, 0, 25),      # seed - đỏ
     1: (0, 155, 0),      # outer - xanh lá
     2: (55, 0, 155),      # placenta - xanh dương
-    3: (0, 155, 155),    # endocrap - vàng
+    3: (0, 155, 155),    # endocarp - vàng
     4: (155, 0, 155)     # chili - tím
 }
 
@@ -28,21 +28,12 @@ def find_centroid(matrix):
     if matrix is None or matrix.size == 0:
         return None
 
-    rows = len(matrix)
-    cols = len(matrix[0])
-
-    points = []
-    for y in range(rows):
-        for x in range(cols):
-            if matrix[y][x] > 0:
-                points.append((x, y))
-
-    if not points:
+    y_coords, x_coords = np.where(matrix > 0)
+    
+    if len(x_coords) == 0:
         return None
 
-    cx = sum(x for x, y in points) / len(points)
-    cy = sum(y for x, y in points) / len(points)
-
+    cx, cy = np.mean(x_coords), np.mean(y_coords)
     return cx, cy
 
 
@@ -121,7 +112,14 @@ class Fruits(object):
         self.path = path
         self.model_segment = model_segment
         self.model_detect = model_detect
-        self.ratio,_ = self.qr_code()
+        
+        qr_result = self.qr_code()
+        if qr_result is not None:
+            self.ratio, _ = qr_result
+        else:
+            print("QR code not found")
+            self.ratio = 1.0 
+            
         self.image = Image.open(path)
         self.width_img, self.height_img = self.image.size
         self.box_cut = self.get_bbox_chili()
@@ -210,12 +208,12 @@ class Chili(Fruits):
 
     def get_img(self, bbox):
         img = cv2.imread(self.path)
-        H, W, _ = img.shape
-
+        
         if img is None:
             print("image is not define")
             return 0
         
+        H, W, _ = img.shape
         img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         x, y, w, h = bbox  
         # print(x,y,w,h)
@@ -396,5 +394,3 @@ class Chili(Fruits):
         cv2.drawContours(contour_line, [appox_contour], -1, (255, 255, 255), 3, cv2.LINE_AA)
 
         return contours, img
-
-
