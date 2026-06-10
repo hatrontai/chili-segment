@@ -49,7 +49,7 @@ def check_object(img):
         return False
 
 class DetectModel:
-    def __init__(self, model_name='none', weight_path= '../pretrain/yolov7_detect_v1.pt', device='cpu'):
+    def __init__(self, model_name='none', weight_path= '../pretrain/yolo26n_detection_v1.pt', device='cpu'):
         if model_name == 'yolo':
             self.model = YOLO(weight_path, task="detect")
             self.use_model = True
