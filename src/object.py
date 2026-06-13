@@ -210,8 +210,7 @@ class Chili(Fruits):
         img = cv2.imread(self.path)
         
         if img is None:
-            print("image is not define")
-            return 0
+            raise ValueError(f"Cannot read image: {self.path}")
         
         H, W, _ = img.shape
         img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -252,6 +251,8 @@ class Chili(Fruits):
             fruit_mask = fruit_mask.astype(np.uint8)
         if use_contour:
             contours, hierarchy = cv2.findContours(fruit_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                return np.zeros_like(fruit_mask)
             contour_areas = [cv2.contourArea(cnt) for cnt in contours]
             max_area = max(contour_areas)
             fruit_mask = np.zeros_like(fruit_mask)
@@ -272,8 +273,9 @@ class Chili(Fruits):
         img = self.img
         bbox = self.bbox
         ratio = self.ratio
-        width_bbox = round((bbox[2] - bbox[0])*ratio, 2)
-        height_bbox = round((bbox[3] - bbox[1])*ratio, 2)
+        # Detector boxes use [x, y, width, height].
+        width_bbox = round(bbox[2]*ratio, 2)
+        height_bbox = round(bbox[3]*ratio, 2)
         hsv_img = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
         low_green = np.array([25, 20, 20])
         high_green  = np.array([90, 255, 255])
@@ -294,6 +296,8 @@ class Chili(Fruits):
     
     def get_width_length_fruit(self):
         mask = self.mask
+        if not np.any(mask):
+            return 0.0, 0.0
         top = 0
         bottom = 0
         for i in range(len(mask)):
@@ -349,21 +353,28 @@ class Chili(Fruits):
 
     def get_redness(self):
         mask_fruit = self.mask
+        pixel_count = int((mask_fruit > 0).sum())
+        if pixel_count == 0:
+            return 0.0
         hsv_img = cv2.cvtColor(self.img, cv2.COLOR_RGB2HSV)
         hue = np.array(hsv_img[:, :, 0].astype(int))
         hue = np.where(mask_fruit > 0, np.abs(90 - hue), 0)
         hue = hue - 60
         hue = np.where(hue >= 0, hue, 0)
-        redness = round((hue.sum()/(mask_fruit > 0).sum())/30, 4)
+        redness = round((hue.sum()/pixel_count)/30, 4)
 
         return redness
 
     def get_wrinkle(self, ep= 0.005):
         mask_fruit = self.mask
         contour,hierarchy  = cv2.findContours(mask_fruit, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contour:
+            return 0.0
         contour_line = np.array(contour[0])
 
         length_L1 = cv2.arcLength(contour_line, True)
+        if length_L1 == 0:
+            return 0.0
         appox_contour = cv2.approxPolyDP(contour_line, ep*length_L1, True)
         length_L2 = cv2.arcLength(appox_contour, True)
         smoothness = length_L2/length_L1

@@ -9,6 +9,7 @@ import numpy as np
 
 import evaluate
 from src.debug import CLASS_NAMES, save_chili_debug
+from src.measurement import clean_mask, color_metrics, length_metrics
 
 
 class FakeChili:
@@ -16,6 +17,7 @@ class FakeChili:
         self.img = np.full((100, 160, 3), 235, dtype=np.uint8)
         self.mask = np.zeros((100, 160), dtype=np.uint8)
         cv2.ellipse(self.mask, (80, 50), (55, 24), 0, 0, 360, 255, -1)
+        self.img[self.mask > 0] = (220, 35, 25)
 
         seed = np.zeros_like(self.mask)
         cv2.circle(seed, (70, 50), 7, 255, -1)
@@ -50,23 +52,70 @@ class DebugOutputTest(unittest.TestCase):
             row = save_chili_debug(chili, "sample.jpg", output_dir)
 
             expected = [
-                "crop.jpg",
-                "feature_mask.png",
-                "skeleton.png",
-                "mask_overlay.jpg",
-                "skeleton_overlay.jpg",
+                "step1_debug/crop.jpg",
+                "step1_debug/raw_mask_overlay.jpg",
+                "step2_masks/fruit_mask_before.png",
+                "step2_masks/fruit_mask_after.png",
+                "step3_length/skeleton_pruned.png",
+                "step3_length/skeleton_path_overlay.jpg",
+                "step4_color/color_overlay.jpg",
+                "step5_measurement/calibrated_measurements.txt",
                 "debug_summary.jpg",
             ]
             for relative_path in expected:
                 self.assertTrue((output_dir / relative_path).is_file())
 
             for class_id, class_name in CLASS_NAMES.items():
-                mask_path = output_dir / "masks" / f"{class_id:02d}_{class_name}.png"
-                self.assertTrue(mask_path.is_file())
+                before = (
+                    output_dir / "step2_masks"
+                    / f"{class_id:02d}_{class_name}_before.png"
+                )
+                after = (
+                    output_dir / "step2_masks"
+                    / f"{class_id:02d}_{class_name}_after.png"
+                )
+                self.assertTrue(before.is_file())
+                self.assertTrue(after.is_file())
 
-            self.assertGreater(row["seed_mask_area_px"], 0)
-            self.assertGreater(row["endocarp_mask_area_px"], 0)
-            self.assertEqual(row["outer_mask_area_px"], 0)
+            self.assertGreater(row["seed_mask_area_clean_px"], 0)
+            self.assertGreater(row["endocarp_mask_area_clean_px"], 0)
+            self.assertEqual(row["outer_mask_area_clean_px"], 0)
+            self.assertGreater(row["skeleton_length_px"], 0)
+            self.assertGreater(row["red_ratio_robust"], 0.9)
+
+    def test_mask_cleanup_length_color_and_calibration(self):
+        mask = np.zeros((100, 160), dtype=np.uint8)
+        cv2.ellipse(mask, (80, 50), (55, 20), 0, 0, 360, 255, -1)
+        cv2.circle(mask, (80, 50), 6, 0, -1)
+        cv2.circle(mask, (5, 5), 2, 255, -1)
+
+        cleaned = clean_mask(mask, min_area=100, keep_largest=True)
+        self.assertEqual(cleaned[50, 80], 255)
+        self.assertEqual(cleaned[5, 5], 0)
+
+        lengths = length_metrics(cleaned, min_branch_length=8)
+        self.assertGreater(lengths["skeleton_length_px"], 80)
+        self.assertGreater(lengths["contour_perimeter_px"], 0)
+
+        image = np.full((100, 160, 3), 240, dtype=np.uint8)
+        image[cleaned > 0] = (230, 30, 20)
+        colors = color_metrics(image, cleaned)
+        self.assertGreater(colors["red_ratio_robust"], 0.95)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            row = save_chili_debug(
+                FakeChili(),
+                "sample.jpg",
+                Path(temp_dir),
+                pixel_per_cm=10,
+                calibration_source="pixel_per_cm",
+            )
+            self.assertAlmostEqual(
+                row["skeleton_length_cm"],
+                row["skeleton_length_px"] / 10,
+                places=4,
+            )
+            self.assertNotEqual(row["fruit_area_cm2"], "")
 
     def test_evaluation_writes_feature_csv(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -85,6 +134,11 @@ class DebugOutputTest(unittest.TestCase):
                 weight_det=None,
                 recursive=False,
                 fail_fast=True,
+                min_component_area=100,
+                min_branch_length=12.0,
+                pixel_per_cm=10.0,
+                reference_length_px=None,
+                reference_length_cm=None,
             )
             fake_fruits = type("FakeFruits", (), {"items": [FakeChili()]})()
 
@@ -97,6 +151,20 @@ class DebugOutputTest(unittest.TestCase):
             self.assertTrue(
                 (output_dir / "sample" / "chili_000" / "debug_summary.jpg").is_file()
             )
+            self.assertTrue(
+                (output_dir / "sample" / "step1_detection_bboxes.jpg").is_file()
+            )
+            self.assertEqual(results.iloc[0]["pixel_per_cm"], 10.0)
+
+    def test_reference_calibration(self):
+        args = Namespace(
+            pixel_per_cm=None,
+            reference_length_px=250.0,
+            reference_length_cm=5.0,
+        )
+        scale, source = evaluate.resolve_calibration(args)
+        self.assertEqual(scale, 50.0)
+        self.assertEqual(source, "reference_object")
 
 
 if __name__ == "__main__":

@@ -72,7 +72,14 @@ class DetectModel:
                     save=False,           
                     show=False
                 )
-        bboxs = results.bboxes
+        bboxs = []
+        for x1, y1, x2, y2 in results[0].boxes.xyxy.cpu().numpy():
+            bboxs.append([
+                int(x1),
+                int(y1) + 540,
+                int(x2 - x1),
+                int(y2 - y1),
+            ])
         return bboxs
 
     def handle_detect(self, image):
@@ -91,12 +98,11 @@ class DetectModel:
                 length_L1 = cv2.arcLength(cnt, True)
                 cnt = cv2.approxPolyDP(cnt, ep*length_L1, True)
                 contour = [p[0].tolist() for p in cnt]
-                contour_or = [[p[0],p[1]+540] for p in contour]
-                x, y, w, h = cv2.boundingRect(np.array(contour_or))
-                bbox = [x, y, w, h]
-                x1, y1, x2, y2 = max(0,x-50), max(0, y-50), min(W,x+w+50),min(H,y+h+50)
+                x, y, w, h = cv2.boundingRect(np.array(contour))
+                x1, y1 = max(0, x-50), max(0, y-50)
+                x2, y2 = min(W, x+w+50), min(H, y+h+50)
                 if check_object(img_RGB[y1:y2, x1:x2]):
-                    bboxs.append(bbox)
+                    bboxs.append([x, y + 540, w, h])
                 
         return fruit_mask, bboxs
 
@@ -118,7 +124,7 @@ class DetectModel:
         x_coords = [bbox[0] for bbox in bboxs]
         y_coords = [bbox[1] for bbox in bboxs]
         var_x = max(x_coords) - min(x_coords) if len(x_coords) > 1 else 0
-        var_y = max(x_coords) - min(y_coords) if len(y_coords) > 1 else 0
+        var_y = max(y_coords) - min(y_coords) if len(y_coords) > 1 else 0
         
         if var_x > var_y:
             bboxs.sort(key=lambda b: b[0])

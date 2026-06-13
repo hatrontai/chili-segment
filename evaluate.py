@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.debug import FEATURE_COLUMNS, save_chili_debug
+from src.debug import FEATURE_COLUMNS, save_chili_debug, save_detection_overview
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
@@ -37,6 +37,36 @@ def parse_args():
     )
     parser.add_argument("--weight_det", default=None)
     parser.add_argument("--recursive", action="store_true")
+    parser.add_argument(
+        "--min_component_area",
+        type=int,
+        default=100,
+        help="Remove cleaned mask components smaller than this pixel area",
+    )
+    parser.add_argument(
+        "--min_branch_length",
+        type=float,
+        default=12.0,
+        help="Prune skeleton branches shorter than this pixel length",
+    )
+    parser.add_argument(
+        "--pixel_per_cm",
+        type=float,
+        default=None,
+        help="Direct measurement calibration in pixels per centimeter",
+    )
+    parser.add_argument(
+        "--reference_length_px",
+        type=float,
+        default=None,
+        help="Known reference length measured in pixels",
+    )
+    parser.add_argument(
+        "--reference_length_cm",
+        type=float,
+        default=None,
+        help="Real length of the same reference in centimeters",
+    )
     parser.add_argument(
         "--fail_fast",
         action="store_true",
@@ -107,6 +137,26 @@ def image_output_dir(output_root, input_path, image_path):
     return output_root / relative_path
 
 
+def resolve_calibration(args):
+    if args.pixel_per_cm is not None:
+        if args.pixel_per_cm <= 0:
+            raise ValueError("--pixel_per_cm must be greater than zero")
+        return float(args.pixel_per_cm), "pixel_per_cm"
+
+    reference_values = (args.reference_length_px, args.reference_length_cm)
+    if any(value is not None for value in reference_values):
+        if any(value is None or value <= 0 for value in reference_values):
+            raise ValueError(
+                "--reference_length_px and --reference_length_cm "
+                "must both be greater than zero"
+            )
+        return (
+            float(args.reference_length_px / args.reference_length_cm),
+            "reference_object",
+        )
+    return None, "none"
+
+
 def run_evaluation(args):
     image_paths = list_images(args.input_path, args.recursive)
     if not image_paths:
@@ -115,6 +165,7 @@ def run_evaluation(args):
     output_root = Path(args.output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     model_detect, model_segment = build_models(args)
+    pixel_per_cm, calibration_source = resolve_calibration(args)
 
     rows = []
     errors = []
@@ -127,6 +178,12 @@ def run_evaluation(args):
         )
         try:
             fruits = create_fruits(image_path, model_detect, model_segment)
+            bbox_path = save_detection_overview(
+                image_path,
+                fruits,
+                image_output / "step1_detection_bboxes.jpg",
+            )
+            print(f"  STEP 1 BBOX: {bbox_path}")
             for chili in fruits.items:
                 chili_output = image_output / f"chili_{chili.id:03d}"
                 rows.append(
@@ -134,6 +191,10 @@ def run_evaluation(args):
                         chili,
                         source_image=image_path,
                         output_dir=chili_output,
+                        pixel_per_cm=pixel_per_cm,
+                        calibration_source=calibration_source,
+                        min_component_area=args.min_component_area,
+                        min_branch_length=args.min_branch_length,
                     )
                 )
         except Exception as exc:

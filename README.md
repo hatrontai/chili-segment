@@ -113,26 +113,40 @@ Run the pipeline on a folder and save intermediate output for every detected chi
 python evaluate.py \
   --input_path ./data \
   --output_dir ./runs/evaluation \
-  --weight_seg ./pretrain/yolov8_segment_v1.pt
+  --weight_seg ./pretrain/yolov8_segment_v1.pt \
+  --pixel_per_cm 120
 ```
 
-Each chili directory contains the crop, one mask per segmentation class,
-mask overlay, feature mask, skeleton overlay, and a combined debug image.
-The command also writes `features.csv` and records failed images in
-`errors.csv`.
+Use either `--pixel_per_cm`, or both `--reference_length_px` and
+`--reference_length_cm`, to export centimeter measurements. Without a scale,
+pixel measurements are still exported.
 
 ```text
 runs/evaluation/
 ├── features.csv
-└── <image_name>/chili_000/
-    ├── crop.jpg
-    ├── masks/00_seed.png ... 04_chili.png
-    ├── feature_mask.png
-    ├── mask_overlay.jpg
-    ├── skeleton.png
-    ├── skeleton_overlay.jpg
-    └── debug_summary.jpg
+├── errors.csv
+└── <image_name>/
+    ├── step1_detection_bboxes.jpg
+    └── chili_000/
+        ├── step1_debug/
+        ├── step2_masks/
+        ├── step3_length/
+        ├── step4_color/
+        ├── step5_measurement/
+        └── debug_summary.jpg
 ```
+
+The mask step saves every class before and after cleanup. The length step
+compares the longest pruned skeleton path, mask bounding-box length, and
+contour perimeter. The color step exports HSV/LAB statistics and a red-pixel
+ratio after removing strong shadows.
+
+Useful tuning options:
+
+- `--min_component_area`: minimum connected-component area retained in masks
+- `--min_branch_length`: skeleton branches shorter than this are pruned
+- `--recursive`: include images in nested input folders
+- `--fail_fast`: stop instead of recording an image error and continuing
 
 ## Pipeline Details
 
