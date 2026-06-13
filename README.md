@@ -105,6 +105,35 @@ Useful flags:
 
 If you use `--save_csv`, make sure `./runs/predict/` exists first, because the script does not create that directory automatically.
 
+## Evaluation / Debug Output
+
+Run the pipeline on a folder and save intermediate output for every detected chili:
+
+```bash
+python evaluate.py \
+  --input_path ./data \
+  --output_dir ./runs/evaluation \
+  --weight_seg ./pretrain/yolov8_segment_v1.pt
+```
+
+Each chili directory contains the crop, one mask per segmentation class,
+mask overlay, feature mask, skeleton overlay, and a combined debug image.
+The command also writes `features.csv` and records failed images in
+`errors.csv`.
+
+```text
+runs/evaluation/
+├── features.csv
+└── <image_name>/chili_000/
+    ├── crop.jpg
+    ├── masks/00_seed.png ... 04_chili.png
+    ├── feature_mask.png
+    ├── mask_overlay.jpg
+    ├── skeleton.png
+    ├── skeleton_overlay.jpg
+    └── debug_summary.jpg
+```
+
 ## Pipeline Details
 
 ### Detection
@@ -138,4 +167,3 @@ If a QR code is detected, its size is used to estimate the pixel-to-real-world s
 - The repository includes notebooks for preprocessing and parameter exploration, but they are not required for runtime inference.
 - The code is research-oriented and expects images in a format similar to the bundled samples.
 - Some helper methods are present for visualization and analysis, but the main entry points are `app.py` and `predictor.py`.
-
