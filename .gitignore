@@ -1,3 +1,29 @@
-# Ignore AI model weights
-pretrain
-runs
+# Images
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.webp
+*.heic
+*.heif
+*.svg
+
+# Generated artifacts and pretrained models
+pretrain/
+runs/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
