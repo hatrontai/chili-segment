@@ -13,7 +13,7 @@ from src.object import Fruits, Chili
 
 
 WEIGHT_MODEL_DETECT = None
-WEIGHT_MODEL_SEGMENT = './pretrain/yolov8_segment_v1.pt'
+WEIGHT_MODEL_SEGMENT = './pretrain/yolov8_segment_v2.pt'
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
 def parse_args():
@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument("--name_model_seg", default='yolo', type=str, help="Name model segmentation")
     parser.add_argument("--device", default=DEVICE, help="set device to run model")
     parser.add_argument("--weight_det", default=WEIGHT_MODEL_DETECT, type=str, required=False, help="Weight pretrain of model object detection for get bbox chili")
-    parser.add_argument("--weight_seg", default=WEIGHT_MODEL_SEGMENT, type=str, required=True, help="Weight pretrain of model segmentation")
+    parser.add_argument("--weight_seg", default=WEIGHT_MODEL_SEGMENT, type=str, required=False, help="Weight pretrain of model segmentation")
     parser.add_argument("--save_csv", action="store_true", help="save output result")
     parser.add_argument("--save_img", action="store_true", help="save image output")
 

@@ -132,11 +132,12 @@ class Fruits(object):
         return chili
 
     def show(self):
+        img_results = []
         plt.figure(figsize=(20,10))
 
         for i in range(len(self.items)):
             img_drawn = draw_full_mask_with_labels(self.items[i].img, self.items[i].polygons)
-
+            img_results.append(img_drawn)
             plt.subplot(1, 6, i+1)
             plt.imshow(img_drawn)
             plt.title(str(self.items[i].name), fontsize=12)
@@ -144,6 +145,8 @@ class Fruits(object):
 
         plt.tight_layout()
         plt.show()
+
+        return img_results
 
     def get_bbox_chili(self):
         # Bbox for each chili in the image (x, y, w, h)
