@@ -5,6 +5,7 @@ import glob
 import argparse
 import torch
 import pandas as pd
+import cv2
 from pathlib import Path
 
 from src.detect import DetectModel
@@ -13,7 +14,7 @@ from src.object import Fruits, Chili
 
 
 WEIGHT_MODEL_DETECT = None
-WEIGHT_MODEL_SEGMENT = './pretrain/yolov8_segment_v1.pt'
+WEIGHT_MODEL_SEGMENT = './weights/11n.pt'
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
 def parse_args():
@@ -26,6 +27,7 @@ def parse_args():
     parser.add_argument("--device", default=DEVICE, help="set device to run model")
     parser.add_argument("--weight_det", default=WEIGHT_MODEL_DETECT, type=str, required=False, help="Weight pretrain of model object detection for get bbox chili")
     parser.add_argument("--weight_seg", default=WEIGHT_MODEL_SEGMENT, type=str, required=True, help="Weight pretrain of model segmentation")
+    parser.add_argument("--imgsz_seg", default=960, type=int, help="Image size dung khi infer model segment, PHAI KHOP voi imgsz luc train checkpoint")
     parser.add_argument("--save_csv", action="store_true", help="save output result")
     parser.add_argument("--save_img", action="store_true", help="save image output")
 
@@ -37,12 +39,13 @@ def inference(args):
     else:
         model_detect = DetectModel(model_name='none')
 
-    model_segment = SegmentModel(weight_path=args.weight_seg,model_name=args.name_model_seg, device=args.device)
+    model_segment = SegmentModel(weight_path=args.weight_seg, model_name=args.name_model_seg, device=args.device, imgsz=args.imgsz_seg)
     
     data_dir = args.input_path
 
     if not os.path.exists(data_dir):
         print("input path is not exist", data_dir)
+        return pd.DataFrame()
 
     if os.path.isdir(data_dir):
         image_paths = glob.glob(f"{data_dir}/*.png") + \
@@ -56,29 +59,49 @@ def inference(args):
     
     rows = []
     for image_path in image_paths:
-        name_image = Path(image_path).stem
-        chilis = Fruits(image_path, model_detect=model_detect, model_segment=model_segment)
+        try:
+            name_image = Path(image_path).stem
+            chilis = Fruits(image_path, model_detect=model_detect, model_segment=model_segment)
 
-        for chili in chilis.items:
-            row = {
-                'id': chili.id,
-                'name_root': name_image,
-                'name_image': chili.name,
-                'width_bbox': chili.width_bbox,
-                'height_bbox': chili.height_bbox,
-                'average_width': chili.width_fruit,
-                'min_width': 0,
-                'max_width': 1,
-                'rednees': chili.redness,
-                'area': chili.area_fruit,
-                'wrinkle': chili.wrinkle
-            }
-            rows.append(row)
-        # results.append(chilis)
+            for chili in chilis.items:
+                row = {
+                    'id': chili.id,
+                    'ratio_mm_per_px': chili.ratio,
+                    'name_root': name_image,
+                    'name_image': chili.name,
+                    'width_bbox': chili.width_bbox,
+                    'height_bbox': chili.height_bbox,
+                    'width_9seg': chili.width_fruit_9seg,
+                    'length_9seg': chili.length_fruit_9seg,
+                    'width_avg': chili.width_fruit_stats["avg"],
+                    'width_min': chili.width_fruit_stats["min"],
+                    'width_max': chili.width_fruit_stats["max"],
+                    'length': chili.length_fruit,
+                    'fruit_body_area': chili.fruit_body_area,
+                    'pericarp_area': chili.endocarp_area,
+                    'placenta_area': chili.placenta_area,
+                    'thickness_avg': chili.thickness_stats["avg_thickness"],
+                    'thickness_max': chili.thickness_stats["max_thickness"],
+                    'redness_chroma': chili.redness,
+                    'color_uniformity': chili.color_uniformity,
+                    'flesh_placenta_ratio': chili.flesh_placenta_ratio,
+                    'seed_count': chili.seed_stats["count"],
+                    'seed_density': chili.seed_density,
+                    'curvature_index': chili.curvature_index,
+                    'asymmetry_index': chili.asymmetry_index
+                }
+                rows.append(row)
+                
+
+                    
+        except Exception as e:
+            print(f"Error processing {image_path}: {e}")
+            continue
     results = pd.DataFrame(rows)
     
     if args.save_csv:
-        results.to_csv('./runs/predict/output.csv')
+        os.makedirs('./runs/predict', exist_ok=True)
+        results.to_csv('./runs/predict/output.csv', index=False)
 
     return results
 

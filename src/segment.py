@@ -16,14 +16,17 @@ CLASS_NAMES = {
 }
 
 class SegmentModel:
-    def __init__(self, weight_path="../pretrain/yolov8_segment_v1.pt", model_name='yolo', device='cpu'):
+        SEED_CONF_THRESHOLD = 0.35
+
+    def __init__(self, weight_path="../pretrain/yolov8_segment_v1.pt", model_name='yolo', device='cpu', imgsz=640):
         if model_name == 'yolo':
             self.model = YOLO(weight_path, task='segment')
         else:
             raise ValueError("Unsupported model_name. Please set model_name to 'yolo'.")
 
         self.device = device
-
+                self.imgsz = imgsz
+        
     def predict(self, image):
         
         target_class = 3
@@ -42,15 +45,18 @@ class SegmentModel:
         else:
             raise ValueError(f"Wrong image shape: {image.shape}")
         
+        # YOLO model expects BGR format, but image is in RGB
+        image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        
         #Predict using YOLO
         results = self.model.predict(
-            source=image,  
-            imgsz=640,
-            conf=0.25,
+            source=image_bgr,  
+            imgsz=self.imgsz,
+            conf=0.1,
             iou=0.7,
             device=self.device,
             retina_masks=True,   
-            save=False,           
+            save=False,
             show=False
         )
         
@@ -67,6 +73,13 @@ class SegmentModel:
             for i in range(len(masks)):
                 class_id = int(boxes.cls[i])
                 confidence = float(boxes.conf[i])
+
+                # Loc rieng cho seed: model.predict() da qua conf=0.1 chung, nhung seed
+                # can nguong cao hon rieng vi day la class bi du doan thua nhieu nhat.
+                # Cac class khac (1,2,3,4) khong bi dung toi, van giu nguyen conf=0.1.
+                if class_id == 0 and confidence < self.SEED_CONF_THRESHOLD:
+                    continue
+
                 bbox = boxes.xyxy[i].cpu().numpy()  # [x1, y1, x2, y2]
                 
                 mask = masks.data[i].cpu().numpy()
@@ -94,7 +107,7 @@ class SegmentModel:
                     'bbox': bbox.tolist(),  # [x1, y1, x2, y2]
                     'bbox_center': [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
                     'bbox_area': float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])),
-                    'mask_area': float(mask.sum() / 255)  # Số pixel trong mask
+                    'mask_area': float(mask.sum() / 255)  
                 })
             
             processed_polygons = self._process_yolo_masks(
@@ -171,7 +184,8 @@ class SegmentModel:
         if len(top_points) < 2:  
             return mask
             
-        center_x = mask.shape[1] // 2
+        # Fix: center_x must be the center of the CHILI, not the center of the whole image!
+        center_x = points[:, 0].mean()
         left_points = top_points[top_points[:, 0] < center_x]
         right_points = top_points[top_points[:, 0] >= center_x]
         
