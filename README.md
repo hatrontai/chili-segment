@@ -87,6 +87,12 @@ python app.py
 
 Upload a chili image and the app returns a table of extracted features for each detected fruit.
 
+The Gradio pipeline inspector also lets you select one of the bundled images in
+`data/`. Its tabs expose the intermediate detection ROI, threshold mask,
+bounding boxes, raw and orientation-normalized fruit crops, segmentation
+overlays, individual class masks, and the final feature table. When both a
+sample and an uploaded image are provided, the uploaded image takes priority.
+
 ## CLI Pipeline
 
 Run inference from the command line with:
@@ -138,4 +144,3 @@ If a QR code is detected, its size is used to estimate the pixel-to-real-world s
 - The repository includes notebooks for preprocessing and parameter exploration, but they are not required for runtime inference.
 - The code is research-oriented and expects images in a format similar to the bundled samples.
 - Some helper methods are present for visualization and analysis, but the main entry points are `app.py` and `predictor.py`.
-

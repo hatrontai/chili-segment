@@ -67,8 +67,8 @@ def inference(args):
                 'width_bbox': chili.width_bbox,
                 'height_bbox': chili.height_bbox,
                 'average_width': chili.width_fruit,
-                'min_width': 0,
-                'max_width': 1,
+                'min_width': chili.width_fruit_stats['min'],
+                'max_width': chili.width_fruit_stats['max'],
                 'rednees': chili.redness,
                 'area': chili.area_fruit,
                 'wrinkle': chili.wrinkle

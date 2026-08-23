@@ -1,10 +1,12 @@
 pandas
 pillow
 opencv-python
-plt
+matplotlib
 pyzbar
 numpy
 shapely
+scipy
+scikit-image
 
 ultralytics
 gradio
