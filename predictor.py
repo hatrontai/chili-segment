@@ -26,6 +26,18 @@ def parse_args():
     parser.add_argument("--device", default=DEVICE, help="set device to run model")
     parser.add_argument("--weight_det", default=WEIGHT_MODEL_DETECT, type=str, required=False, help="Weight pretrain of model object detection for get bbox chili")
     parser.add_argument("--weight_seg", default=WEIGHT_MODEL_SEGMENT, type=str, required=False, help="Weight pretrain of model segmentation")
+    parser.add_argument(
+        "--chili_method",
+        choices=["threshold", "yolo"],
+        default="threshold",
+        help="Method used to build class chili; other classes still use YOLO",
+    )
+    parser.add_argument(
+        "--chili_threshold",
+        default=16,
+        type=int,
+        help="Offset added to the dominant red-channel value in threshold mode",
+    )
     parser.add_argument("--save_csv", action="store_true", help="save output result")
     parser.add_argument("--save_img", action="store_true", help="save image output")
 
@@ -37,7 +49,13 @@ def inference(args):
     else:
         model_detect = DetectModel(model_name='none')
 
-    model_segment = SegmentModel(weight_path=args.weight_seg,model_name=args.name_model_seg, device=args.device)
+    model_segment = SegmentModel(
+        weight_path=args.weight_seg,
+        model_name=args.name_model_seg,
+        device=args.device,
+        chili_method=args.chili_method,
+        chili_threshold=args.chili_threshold,
+    )
     
     data_dir = args.input_path
 

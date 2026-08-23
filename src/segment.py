@@ -16,20 +16,75 @@ CLASS_NAMES = {
 }
 
 class SegmentModel:
-    def __init__(self, weight_path="../pretrain/yolov8_segment_v1.pt", model_name='yolo', device='cpu'):
+    def __init__(
+        self,
+        weight_path="../pretrain/yolov8_segment_v1.pt",
+        model_name='yolo',
+        device='cpu',
+        chili_method='threshold',
+        chili_threshold=16,
+    ):
         if model_name == 'yolo':
             self.model = YOLO(weight_path, task='segment')
         else:
             raise ValueError("Unsupported model_name. Please set model_name to 'yolo'.")
 
         self.device = device
+        self.chili_method = self._validate_chili_method(chili_method)
+        self.chili_threshold = int(chili_threshold)
 
-    def predict(self, image):
+    @staticmethod
+    def _validate_chili_method(chili_method):
+        method = str(chili_method).strip().lower()
+        if method not in {'threshold', 'yolo'}:
+            raise ValueError(
+                "Unsupported chili_method. Use 'threshold' or 'yolo'."
+            )
+        return method
+
+    def _threshold_chili_mask(self, image, threshold):
+        """Build a full chili silhouette using the legacy red threshold."""
+        red_channel = image if image.ndim == 2 else image[:, :, 0]
+        histogram = cv2.calcHist(
+            [red_channel.astype(np.uint8)],
+            [0],
+            None,
+            [256],
+            [0, 256],
+        )
+        cutoff = int(histogram.argmax()) + int(threshold)
+        mask = np.where(red_channel >= cutoff, 255, 0).astype(np.uint8)
+
+        kernel = np.ones((10, 10), dtype=np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+        contours, _ = cv2.findContours(
+            mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
+        if not contours:
+            return np.zeros_like(mask), cutoff
+
+        # This reproduces the threshold silhouette used as the comparison
+        # reference: one fruit crop should contain one complete fruit body.
+        fruit_contour = max(contours, key=cv2.contourArea)
+        result = np.zeros_like(mask)
+        cv2.drawContours(result, [fruit_contour], -1, 255, -1)
+        return result, cutoff
+
+    def predict(self, image, chili_method=None, chili_threshold=None):
         
         target_class = 3
         epsilon_factor = 0.002
         min_dist = 4.0
         buffer_size = 2
+        selected_chili_method = self._validate_chili_method(
+            self.chili_method if chili_method is None else chili_method
+        )
+        selected_chili_threshold = int(
+            self.chili_threshold if chili_threshold is None else chili_threshold
+        )
         
         #Check input type
         if not isinstance(image, np.ndarray):
@@ -61,11 +116,16 @@ class SegmentModel:
         processed_polygons = []
         masks_data = []
         detection_details = []
+        threshold_cutoff = None
         
         if masks is not None and len(masks) > 0:
             #Parse masks and boxes
             for i in range(len(masks)):
                 class_id = int(boxes.cls[i])
+                if selected_chili_method == 'threshold' and class_id == 4:
+                    # Other semantic classes still come from YOLO, but its
+                    # class-4 prediction is replaced by the threshold mask.
+                    continue
                 confidence = float(boxes.conf[i])
                 bbox = boxes.xyxy[i].cpu().numpy()  # [x1, y1, x2, y2]
                 
@@ -82,21 +142,59 @@ class SegmentModel:
                     'class_id': class_id,
                     'mask': mask,
                     'confidence': confidence,
-                    'bbox': bbox
+                    'bbox': bbox,
+                    'source': 'yolo',
                 })
                 
                 #Save detection details
                 detection_details.append({
-                    'detection_id': i,
+                    'detection_id': len(detection_details),
+                    'yolo_detection_id': i,
                     'class_id': class_id,
                     'class_name': CLASS_NAMES.get(class_id, f"class_{class_id}"),
                     'confidence': confidence,
                     'bbox': bbox.tolist(),  # [x1, y1, x2, y2]
                     'bbox_center': [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2],
                     'bbox_area': float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1])),
-                    'mask_area': float(mask.sum() / 255)  # Số pixel trong mask
+                    'mask_area': float(mask.sum() / 255),  # Số pixel trong mask
+                    'source': 'yolo',
                 })
-            
+
+        if selected_chili_method == 'threshold':
+            chili_mask, threshold_cutoff = self._threshold_chili_mask(
+                image,
+                selected_chili_threshold,
+            )
+            if np.any(chili_mask):
+                x, y, width, height = cv2.boundingRect(chili_mask)
+                bbox = np.array(
+                    [x, y, x + width, y + height],
+                    dtype=np.float32,
+                )
+                confidence = 1.0
+                masks_data.append({
+                    'class_id': 4,
+                    'mask': chili_mask,
+                    'confidence': confidence,
+                    'bbox': bbox,
+                    'source': 'threshold',
+                })
+                detection_details.append({
+                    'detection_id': len(detection_details),
+                    'class_id': 4,
+                    'class_name': CLASS_NAMES[4],
+                    'confidence': confidence,
+                    'bbox': bbox.tolist(),
+                    'bbox_center': [
+                        float((bbox[0] + bbox[2]) / 2),
+                        float((bbox[1] + bbox[3]) / 2),
+                    ],
+                    'bbox_area': float(width * height),
+                    'mask_area': float(np.count_nonzero(chili_mask)),
+                    'source': 'threshold',
+                })
+
+        if masks_data:
             processed_polygons = self._process_yolo_masks(
                 masks_data, 
                 img_width, 
@@ -125,7 +223,10 @@ class SegmentModel:
                 'num_detections': len(detection_details),
                 'num_polygons': len(processed_polygons),
                 'classes_detected': list(set([d['class_id'] for d in detection_details])),
-                'classes_detected_names': list(set([d['class_name'] for d in detection_details]))
+                'classes_detected_names': list(set([d['class_name'] for d in detection_details])),
+                'chili_method': selected_chili_method,
+                'chili_threshold': selected_chili_threshold,
+                'chili_threshold_cutoff': threshold_cutoff,
             }
         }
     
@@ -378,23 +479,35 @@ class SegmentModel:
                 contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 
                 if len(contours) > 0:
-                   
-                    largest_contour = max(contours, key=cv2.contourArea)
-                    points_pixel = largest_contour.reshape(-1, 2).astype(np.float32)
-                    
-                    approx_points = self._approximate_polygon_smooth(
-                        points_pixel,
-                        epsilon_factor=epsilon_factor,
-                        min_dist=min_dist
+                    # A chili silhouette can be split into several disconnected
+                    # pieces (for example, the two flesh walls of a cut fruit).
+                    # Keep every class-4 contour so Chili can merge it with all
+                    # child-class masks later. Other classes retain the original
+                    # one-contour-per-detection behavior.
+                    selected_contours = (
+                        contours
+                        if mask_info['class_id'] == 4
+                        else [max(contours, key=cv2.contourArea)]
                     )
-                    
-                    points_norm = approx_points.astype(float)
-                    points_norm[:, 0] /= img_width
-                    points_norm[:, 1] /= img_height
-                    
-                    result_polygons.append({
-                        'class_id': mask_info['class_id'],
-                        'points_normalized': points_norm
-                    })
+
+                    for contour in selected_contours:
+                        points_pixel = contour.reshape(-1, 2).astype(np.float32)
+
+                        approx_points = self._approximate_polygon_smooth(
+                            points_pixel,
+                            epsilon_factor=epsilon_factor,
+                            min_dist=min_dist
+                        )
+                        if len(approx_points) < 3:
+                            continue
+
+                        points_norm = approx_points.astype(float)
+                        points_norm[:, 0] /= img_width
+                        points_norm[:, 1] /= img_height
+
+                        result_polygons.append({
+                            'class_id': mask_info['class_id'],
+                            'points_normalized': points_norm
+                        })
         
         return result_polygons

@@ -67,6 +67,11 @@ RUN_LEN_SHRINK_FACTOR = 0.6
 RUN_LEN_MAX_ATTEMPTS = 6
 MIN_TIP_X_SEPARATION_FRAC = 0.15
 
+# Keep every meaningful chili component without reverting to largest-contour
+# selection. Components below this fraction are isolated prediction noise.
+CHILI_MIN_COMPONENT_RATIO = 0.002
+CHILI_MIN_COMPONENT_AREA = 30
+
 TIP_CURVATURE_WINDOW = 6
 TIP_CURVATURE_WEIGHT = 1.0
 TIP_DIST_PENALTY_WEIGHT = 0.5
@@ -492,10 +497,19 @@ def run_case2_geo_original(chili, placenta_total_px):
     return s_mask, p_true, p_a, p_b, cnt, is_in, True, "CASE2_OK"
 
 class Fruits(object):
-    def __init__(self, path, model_detect, model_segment):
+    def __init__(
+        self,
+        path,
+        model_detect,
+        model_segment,
+        chili_method=None,
+        chili_threshold=None,
+    ):
         self.path = path
         self.model_segment = model_segment
         self.model_detect = model_detect
+        self.chili_method = chili_method
+        self.chili_threshold = chili_threshold
 
         qr_result = self.qr_code()
         if qr_result is not None:
@@ -515,7 +529,15 @@ class Fruits(object):
         self.items = [self.get_item(i) for i in range(len(self.box_cut))]
 
     def get_item(self, index):
-        chili = Chili(self.path, index, self.model_segment, self.box_cut[index], self.ratio)
+        chili = Chili(
+            self.path,
+            index,
+            self.model_segment,
+            self.box_cut[index],
+            self.ratio,
+            chili_method=self.chili_method,
+            chili_threshold=self.chili_threshold,
+        )
         print(index, self.box_cut[index])
         return chili
 
@@ -582,7 +604,16 @@ class Fruits(object):
 
 
 class Chili(Fruits):
-    def __init__(self, path, index, model_segment, bbox, ratio):
+    def __init__(
+        self,
+        path,
+        index,
+        model_segment,
+        bbox,
+        ratio,
+        chili_method=None,
+        chili_threshold=None,
+    ):
         self.path = path
         self.bbox = bbox
         self.model_segment = model_segment
@@ -593,7 +624,11 @@ class Chili(Fruits):
 
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
 
-        self.rseg = model_segment.predict(self.img)
+        self.rseg = model_segment.predict(
+            self.img,
+            chili_method=chili_method,
+            chili_threshold=chili_threshold,
+        )
         self.polygons = self.get_polygons()
 
         self.mask_chili = self._get_class_mask(4)
@@ -612,26 +647,50 @@ class Chili(Fruits):
         combined = cv2.bitwise_or(combined, self.mask_seed)
         self.mask_chili = cv2.bitwise_or(self.mask_chili, combined)
 
-        # MỚI: Làm mịn và lấp đầy 100% mask_chili
-        # 1. Chà mịn lồi lõm bằng Morphology
+        # Làm mịn các khe hở nhỏ sau khi union. Class chili giữ
+        # toàn bộ contour YOLO nên không làm mất các mảnh thịt rời.
         kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
         kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         self.mask_chili = cv2.morphologyEx(self.mask_chili, cv2.MORPH_CLOSE, kernel_close)
         self.mask_chili = cv2.morphologyEx(self.mask_chili, cv2.MORPH_OPEN, kernel_open)
 
-        # 2. Tìm external contour để bọc nilon (loại bỏ mọi lỗ thủng bên trong)
+        # Bỏ các đảo nhiễu rất nhỏ theo ngưỡng tương đối, không dùng
+        # largest contour. Những component chili thật có diện tích đáng kể
+        # (như mảnh phía trên-trái của Chili 4) vẫn được giữ lại.
+        component_count, component_labels, component_stats, _ = (
+            cv2.connectedComponentsWithStats(
+                (self.mask_chili > 0).astype(np.uint8),
+                connectivity=8,
+            )
+        )
+        total_area = int(np.count_nonzero(self.mask_chili))
+        minimum_area = max(
+            CHILI_MIN_COMPONENT_AREA,
+            int(round(total_area * CHILI_MIN_COMPONENT_RATIO)),
+        )
+        filtered_mask = np.zeros_like(self.mask_chili)
+        for component_id in range(1, component_count):
+            area = component_stats[component_id, cv2.CC_STAT_AREA]
+            if area >= minimum_area:
+                filtered_mask[component_labels == component_id] = 255
+        if np.any(filtered_mask):
+            self.mask_chili = filtered_mask
+
+        # Lấp mọi lỗ kín còn lại nhưng không chọn max contour.
+        # Việc không chọn max giúp giữ các component chili hợp lệ mà
+        # model dự đoán tách rời.
+        self.mask_chili = (
+            ndi.binary_fill_holes(self.mask_chili > 0).astype(np.uint8) * 255
+        )
+
+        # Cập nhật tất cả polygon class 4 để các hàm hiển thị dùng
+        # cùng hình học với mask_chili cuối.
         contours, _ = cv2.findContours(self.mask_chili, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            largest_cnt = max(contours, key=cv2.contourArea)
-
-            # Xóa trắng mask_chili cũ và tô đặc ruột contour mới tìm được
-            self.mask_chili = np.zeros_like(self.mask_chili)
-            cv2.drawContours(self.mask_chili, [largest_cnt], -1, 255, -1)
-
-            # Tính toán lại polygon cho class 4 để hàm show() vẽ được viền
-            pts = largest_cnt.reshape(-1, 2).astype(np.float32)
-            # Remove old class 4 polygon if it exists, and append the new robust one
-            self.polygons = [p for p in self.polygons if p['class_id'] != 4]
+        self.polygons = [p for p in self.polygons if p['class_id'] != 4]
+        for contour in contours:
+            if cv2.contourArea(contour) <= 0:
+                continue
+            pts = contour.reshape(-1, 2).astype(np.float32)
             self.polygons.append({
                 "class_id": 4,
                 "class_name": "chili",
@@ -741,6 +800,7 @@ class Chili(Fruits):
         img = self.img
         bbox = self.bbox
         ratio = self.ratio
+        self.rotation = "none"
         # bbox có định dạng [x, y, w, h]
         width_bbox = round(bbox[2] * ratio, 2)
         height_bbox = round(bbox[3] * ratio, 2)
@@ -766,14 +826,17 @@ class Chili(Fruits):
             if is_horizontal:
                 if dist_left < dist_right:
                     img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+                    self.rotation = "90_cw"
                     width_bbox, height_bbox = height_bbox, width_bbox
                 else:
                     img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    self.rotation = "90_ccw"
                     width_bbox, height_bbox = height_bbox, width_bbox
             else:
                 # Nếu đã nằm dọc, chỉ cho phép lộn ngược 180 độ nếu cuống nằm ở dưới
                 if dist_bottom < dist_top:
                     img = cv2.rotate(img, cv2.ROTATE_180)
+                    self.rotation = "180"
 
             self.img = img
 
@@ -803,7 +866,10 @@ class Chili(Fruits):
         if polygons:
             for poly_data in polygons:
                 if poly_data['class_id'] == class_id:
-                    pts = poly_data['points'].astype(np.int32)
+                    pts = np.asarray(poly_data.get('points'))
+                    if pts.ndim != 2 or pts.shape[0] < 3 or pts.shape[1] != 2:
+                        continue
+                    pts = pts.astype(np.int32)
                     cv2.fillPoly(combined_mask, [pts], 255)
         else:
             # Fallback to raw masks if polygons are not available
