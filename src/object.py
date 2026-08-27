@@ -783,41 +783,30 @@ class Chili(Fruits):
 
         if centroid_pedicel is not None:
             cx, cy = centroid_pedicel
-            dist_top = cy
-            dist_bottom = self.img.shape[0] - cy
-            dist_left = cx
-            dist_right = self.img.shape[1] - cx
+            crop_height, crop_width = img.shape[:2]
 
-            w_box, h_box = bbox[2], bbox[3]
-            aspect_ratio = w_box / h_box if h_box > 0 else 1.0
+            # Normalize each distance by its corresponding image dimension.
+            # Raw pixel distances are not comparable for a rectangular crop:
+            # vertical distances belong to height, horizontal distances to width.
+            edge_distances = {
+                "top": cy / crop_height,
+                "bottom": (crop_height - cy) / crop_height,
+                "left": cx / crop_width,
+                "right": (crop_width - cx) / crop_width,
+            }
+            pedicel_edge = min(edge_distances, key=edge_distances.get)
 
-            if aspect_ratio > 1.2:
-                if dist_left < dist_right:
-                    img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-                    self.rotation = "90_cw"
-                    width_bbox, height_bbox = height_bbox, width_bbox
-                else:
-                    img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    self.rotation = "90_ccw"
-                    width_bbox, height_bbox = height_bbox, width_bbox
-            elif aspect_ratio < (1.0 / 1.2):
-                if dist_bottom < dist_top:
-                    img = cv2.rotate(img, cv2.ROTATE_180)
-                    self.rotation = "180"
-            else:
-                #Fix for round chili
-                min_dist = min(dist_top, dist_bottom, dist_left, dist_right)
-                if min_dist == dist_left:
-                    img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-                    self.rotation = "90_cw"
-                    width_bbox, height_bbox = height_bbox, width_bbox
-                elif min_dist == dist_right:
-                    img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                    self.rotation = "90_ccw"
-                    width_bbox, height_bbox = height_bbox, width_bbox
-                elif min_dist == dist_bottom:
-                    img = cv2.rotate(img, cv2.ROTATE_180)
-                    self.rotation = "180"
+            if pedicel_edge == "bottom":
+                img = cv2.rotate(img, cv2.ROTATE_180)
+                self.rotation = "180"
+            elif pedicel_edge == "left":
+                img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+                self.rotation = "90_cw"
+                width_bbox, height_bbox = height_bbox, width_bbox
+            elif pedicel_edge == "right":
+                img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                self.rotation = "90_ccw"
+                width_bbox, height_bbox = height_bbox, width_bbox
 
             self.img = img
 
