@@ -643,26 +643,17 @@ class Chili(Fruits):
         self.mask_outer = self._get_class_mask(1)
         self.mask_seed = self._get_class_mask(0)
 
-        # Chữa cháy lỗi label: Dù YOLO có nhận diện class chili thế nào đi nữa,
-        # diện tích quả ớt (chili) BẮT BUỘC phải bao trọn (endocarp + placenta + outer + seed).
-        # Ta GỘP (Union) toàn bộ các mask con này vào mask_chili để đảm bảo chili là khối to nhất.
-        # Bước này được đưa lên TRƯỚC khi tách cuống (so với bản gốc), vì thuật toán
-        # tách cuống hình học v7 bên dưới cần mask_chili đã hoàn thiện để dựng contour đúng.
         combined = cv2.bitwise_or(self.mask_endocarp, self.mask_placenta)
         combined = cv2.bitwise_or(combined, self.mask_outer)
         combined = cv2.bitwise_or(combined, self.mask_seed)
         self.mask_chili = cv2.bitwise_or(self.mask_chili, combined)
 
-        # Làm mịn các khe hở nhỏ sau khi union. Class chili giữ
-        # toàn bộ contour YOLO nên không làm mất các mảnh thịt rời.
         kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
         kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         self.mask_chili = cv2.morphologyEx(self.mask_chili, cv2.MORPH_CLOSE, kernel_close)
         self.mask_chili = cv2.morphologyEx(self.mask_chili, cv2.MORPH_OPEN, kernel_open)
 
-        # Bỏ các đảo nhiễu rất nhỏ theo ngưỡng tương đối, không dùng
-        # largest contour. Những component chili thật có diện tích đáng kể
-        # (như mảnh phía trên-trái của Chili 4) vẫn được giữ lại.
+        
         component_count, component_labels, component_stats, _ = (
             cv2.connectedComponentsWithStats(
                 (self.mask_chili > 0).astype(np.uint8),
@@ -682,15 +673,11 @@ class Chili(Fruits):
         if np.any(filtered_mask):
             self.mask_chili = filtered_mask
 
-        # Lấp mọi lỗ kín còn lại nhưng không chọn max contour.
-        # Việc không chọn max giúp giữ các component chili hợp lệ mà
-        # model dự đoán tách rời.
         self.mask_chili = (
             ndi.binary_fill_holes(self.mask_chili > 0).astype(np.uint8) * 255
         )
 
-        # Cập nhật tất cả polygon class 4 để các hàm hiển thị dùng
-        # cùng hình học với mask_chili cuối.
+        # Update all class 4 polygons so display functions use the same
         contours, _ = cv2.findContours(self.mask_chili, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         self.polygons = [p for p in self.polygons if p['class_id'] != 4]
         for contour in contours:
@@ -703,35 +690,12 @@ class Chili(Fruits):
                 "points": pts
             })
 
-        # Backward-compatible name used by the original object.py helpers.
-        # It now points to the class-aware YOLO mask instead of the old
-        # red-channel threshold mask.
         self.mask = self.mask_chili
 
-        # ----------------------------------------------------
-        # STEM SEPARATION v7: HÌNH HỌC (thay thế v6 dựa trên Saturation)
-        # Lịch sử ngắn gọn (chi tiết xem git log):
-        #   v3: chỉ dựa HUE xanh -> cuống trắng không tách được.
-        #   v4: dùng trục a* đỏ-xanh -> chỉ đúng khi thịt quả luôn đỏ.
-        #   v5: dùng Saturation (tổng quát mọi màu quả), nhưng dây nhau thai
-        #       THẬT (nơi hạt bám) ở nhiều giống ớt CŨNG nhạt màu như cuống ->
-        #       bị nối nhầm thành 1 khối dài.
-        #   v6: thêm bước cắt theo "điểm thắt cổ" dựa trên bề rộng theo hàng
-        #       pixel để cắt cụt khối màu nhạt màu, giảm tràn lan xuống dưới.
-        #   v7 (bản này): bỏ hẳn cách tiếp cận theo màu làm trục chính. Dùng
-        #       HÌNH HỌC contour của "thịt quả" (flesh) để tìm 2 điểm đầu mút
-        #       (tip) của khớp nối cuống-nhau thai, dựng 1 đường khép kín tại
-        #       đó để tách placenta thành true-placenta/stem. Có 3 lớp fallback
-        #       khi hình học không đủ tín hiệu: (1) quả xanh toàn phần -> cắt
-        #       cố định 5%, (2) chạy hình học trên "ghost flesh" (chili trừ
-        #       placenta) khi flesh gốc không đối xứng, (3) line-cut dựa theo
-        #       vệt xanh HSV bám mép placenta nếu cả hai bước hình học đều fail
-        #       hoặc cắt lẹm quá 35% diện tích placenta.
-        # ----------------------------------------------------
+        # STEM SEPARATION
         self.mask_stem, self.mask_true_placenta = self._compute_stem_and_true_placenta()
 
 
-        # Trích xuất xương sống dùng chung cho 3 hàm
         self.spine = self._calculate_spine()
 
         self.width_fruit_stats = self.get_width_fruit()
@@ -806,7 +770,7 @@ class Chili(Fruits):
         bbox = self.bbox
         ratio = self.ratio
         self.rotation = "none"
-        # bbox có định dạng [x, y, w, h]
+        #Bbox has format [x, y, w, h]
         width_bbox = round(bbox[2] * ratio, 2)
         height_bbox = round(bbox[3] * ratio, 2)
 
@@ -827,8 +791,6 @@ class Chili(Fruits):
             w_box, h_box = bbox[2], bbox[3]
             aspect_ratio = w_box / h_box if h_box > 0 else 1.0
 
-            # Đối với ớt dài, ta phải ép xoay theo trục dài nhất (Aspect ratio > 1.2 hoặc < 0.83).
-            # Khắc phục lỗi: cạnh top/bottom của ảnh crop ớt dài nằm ngang có thể gần cuống hơn cả cạnh trái/phải.
             if aspect_ratio > 1.2:
                 if dist_left < dist_right:
                     img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
@@ -843,8 +805,7 @@ class Chili(Fruits):
                     img = cv2.rotate(img, cv2.ROTATE_180)
                     self.rotation = "180"
             else:
-                # Đối với ảnh crop vuông vức (như ớt chuông), aspect ratio ~ 1,
-                # ta dùng thuật toán tìm cạnh ở gần cực điểm cuống nhất để đưa lên trên.
+                #Fix for round chili
                 min_dist = min(dist_top, dist_bottom, dist_left, dist_right)
                 if min_dist == dist_left:
                     img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
@@ -1127,7 +1088,7 @@ class Chili(Fruits):
         }
 
     def get_redness(self):
-        """Return a scalar under the original public method name."""
+        #Return a scalar under the original public method name.
         return self.get_redness_metrics()["redness_chroma"]
 
 
@@ -1186,28 +1147,23 @@ class Chili(Fruits):
         return round(float(asymmetry), 4)
 
     def segm(self, threshold=56):
-        """Preserve the original threshold helper for external callers."""
+        #Preserve the original threshold helper for external callers.
         img_red = np.asarray(self.img[:, :, 0])
         return np.where(img_red >= threshold, 255, 0)
 
     def get_mask(self, use_closing=True, use_contour=True):
-        """Return the enhanced fruit mask under the original method name.
-
-        The arguments are retained for API compatibility. Mask cleanup is now
-        performed once during construction using the YOLO class masks.
-        """
         return self.mask_chili.copy()
 
     def get_width_length_fruit(self):
-        """Return width and length using the original public method name."""
+        #Return width and length using the original public method name.
         return self.width_fruit_stats["avg"], self.length_fruit
 
     def get_area(self):
-        """Calculate complete fruit area using the original public name."""
+        #Calculate complete fruit area using the original public name.
         return round((self.mask_chili > 0).sum() * (self.ratio ** 2), 2)
 
     def get_wrinkle(self, ep=0.005):
-        """Calculate the original contour-based wrinkle score."""
+        #Calculate the original contour-based wrinkle score.
         contours, _ = cv2.findContours(
             self.mask_chili, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -1224,7 +1180,7 @@ class Chili(Fruits):
         return round(1 - smoothness, 5)
 
     def get_hist(self):
-        """Preserve the original red-channel histogram visualization helper."""
+        #Preserve the original red-channel histogram visualization helper.
         img_red = np.asarray(self.img[:, :, 0])
         hist = cv2.calcHist([img_red], [0], None, [256], [0, 256])
         height, width = 400, 800
@@ -1243,7 +1199,7 @@ class Chili(Fruits):
         return hist_image
 
     def get_contour(self, ep=0.005):
-        """Preserve the original contour inspection helper."""
+        #Preserve the original contour inspection helper.
         img = self.img.copy()
         contours, _ = cv2.findContours(
             self.mask_chili, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -1260,7 +1216,8 @@ class Chili(Fruits):
         mask_pure_red = cv2.subtract(self.mask_chili, mask_remove)
 
         lab = cv2.cvtColor(self.img, cv2.COLOR_RGB2LAB)
-        # Trong OpenCV, a* được scale lên [0, 255] với mức 128 là điểm 0
+
+        #In OpenCV, a* is scaled to [0, 255] with 128 being the zero point
         a_channel = lab[:, :, 1].astype(np.float32)
         ripeness_a_star = a_channel - 128.0
 
