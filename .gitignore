@@ -14,6 +14,7 @@
 # Generated artifacts and pretrained models
 pretrain/
 runs/
+data/
 
 # Python cache
 __pycache__/
