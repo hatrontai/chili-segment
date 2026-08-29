@@ -638,7 +638,10 @@ class Chili(Fruits):
         self.polygons = self.get_polygons()
 
         self.mask_chili = self._get_class_mask(4)
-        self.mask_endocarp = self._get_class_mask(3)
+        # Endocarp is consumed directly from YOLO's raster masks.  Do not use
+        # SegmentModel's filled/smoothed polygon representation for this class.
+        self.mask_endocarp = self._get_raw_yolo_class_mask(3)
+        self.mask_endocarp_source = "raw_yolo"
         self.mask_placenta = self._get_class_mask(2)
         self.mask_outer = self._get_class_mask(1)
         self.mask_seed = self._get_class_mask(0)
@@ -830,6 +833,26 @@ class Chili(Fruits):
                 if md["class_id"] == class_id:
                     single_mask = (md["mask"] > 0).astype(np.uint8) * 255
                     combined_mask = cv2.bitwise_or(combined_mask, single_mask)
+        return combined_mask
+
+    def _get_raw_yolo_class_mask(self, class_id):
+        """Combine raw YOLO raster masks without polygon or hole postprocessing."""
+        height, width = self.img.shape[:2]
+        combined_mask = np.zeros((height, width), dtype=np.uint8)
+        for mask_data in self.rseg.get("masks_data", []):
+            if int(mask_data.get("class_id", -1)) != int(class_id):
+                continue
+            if mask_data.get("source", "yolo") != "yolo":
+                continue
+
+            single_mask = (mask_data["mask"] > 0).astype(np.uint8) * 255
+            if single_mask.shape != (height, width):
+                single_mask = cv2.resize(
+                    single_mask,
+                    (width, height),
+                    interpolation=cv2.INTER_NEAREST,
+                )
+            combined_mask = cv2.bitwise_or(combined_mask, single_mask)
         return combined_mask
 
     def get_name(self):
