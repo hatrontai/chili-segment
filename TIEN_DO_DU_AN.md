@@ -129,10 +129,16 @@ Các phép đo hình học dùng tỷ lệ QR `0,094787 mm/pixel` trên ảnh th
 ### Độ dày mới
 
 - Baseline hiện tại dùng `2 × distanceTransform` tại các điểm skeleton, tức giả định skeleton luôn nằm chính giữa hai mép.
-- Phương pháp mới lấy mẫu skeleton theo khoảng cách không gian `1 mm`.
+- Phương pháp mới sắp từng component skeleton thành polyline và nội suy điểm theo arc length mỗi `1 mm`, thay cho cách chia ô lưới không gian.
+- Skeleton mới ưu tiên wall đã closing `1,4 mm` và opening `0,6 mm`, rồi chuyển skeleton thành graph 8-neighbor có trọng số theo khoảng cách pixel.
+- Với mỗi connected component có nhánh, `longest_backbone_skeleton()` luôn chỉ giữ đường geodesic dài nhất giữa hai endpoint. Component thẳng/vòng không có nhánh được giữ nguyên.
+- Đường hở giữ cả hai endpoint; các khoảng thường đúng 1 mm và chỉ khoảng cuối được phép ngắn hơn. Đường vòng lấy mẫu từ điểm trên-trái, không lặp điểm đầu.
+- Baseline luôn dùng skeleton thô của wall gốc. Phương án cắt spur cũ đã được loại khỏi notebook.
 - Tại mỗi điểm lấy mẫu, thuật toán tìm đoạn thẳng ngắn nhất đi qua skeleton và cắt một mép trong cùng một mép ngoài.
 - Góc được quét bước `1°`, sau đó tinh chỉnh bước `0,1°`.
 - Giao điểm với hai mép được nội suy dưới pixel; độ dài được đổi sang mm bằng QR.
+- Các lát cắt gần cuống, điểm nhánh hoặc ngoại lệ cục bộ về độ dày/hướng được loại khỏi thống kê mới. Nếu số điểm sau lọc dưới 30% dữ liệu thô (tối thiểu 20 điểm), notebook dùng dữ liệu thô và ghi rõ `filter_mode=fallback_raw`.
+- Điểm dùng để tính được vẽ cyan; vị trí ray-cast lỗi hoặc bị lọc vẫn được vẽ xám để kiểm tra trực quan tính đều của chuỗi lấy mẫu.
 
 Kết quả thử nghiệm:
 
@@ -140,18 +146,24 @@ Kết quả thử nghiệm:
 | --- | ---: |
 | Baseline thickness trung bình | 3,7455 mm |
 | Baseline thickness lớn nhất | 11,5866 mm |
-| Thickness mới trung bình | 6,6452 mm |
-| Thickness mới trung vị | 6,1797 mm |
-| Thickness mới nhỏ nhất/lớn nhất | 0,0907 / 16,5550 mm |
-| Điểm đo hợp lệ | 515/752 |
-| Coverage | 68,48% |
+| Thickness mới trung bình | 6,7149 mm |
+| Thickness mới trung vị | 6,1676 mm |
+| Thickness mới nhỏ nhất/lớn nhất sau lọc | 3,6024 / 15,6486 mm |
+| Điểm lấy mẫu yêu cầu | 422 |
+| Điểm ray-cast hợp lệ | 368/422 |
+| Điểm được dùng sau lọc | 304/368 |
+| Điểm ray-cast lỗi / bị lọc | 54 / 64 |
+| Coverage ray-cast | 87,20% |
+| Sai số khoảng cách thường lớn nhất | `< 0,01 mm` |
+| Tỷ lệ skeleton giữ lại | 93,24% |
+| Chế độ skeleton / lọc | `smoothed_wall`, `longest_geodesic` / `clean` |
 
-Giá trị cực tiểu rất nhỏ và coverage chưa đạt 100% cho thấy phương pháp vẫn cần kiểm tra các nhánh skeleton mảnh, vùng giao nhau và tiêu chí loại ngoại lệ trước khi đưa vào runtime.
+So với dữ liệu trước lọc (`mean=6,6719 mm`, `min=0,5437 mm`), bộ lọc đã loại các lát cắt cực ngắn bất thường. Backbone còn 3.527 pixel và là skeleton duy nhất dùng để tính thickness mới. Coverage chưa đạt 100% và giá trị lớn nhất vẫn cao, nên phương pháp vẫn cần ground truth cùng nhiều ảnh hơn trước khi đưa vào runtime.
 
 ### Độ nhăn mới
 
 - Chỉ tính trên các run thuộc mép ngoài của wall; không dùng toàn bộ contour chili như baseline.
-- `WRINKLE_SEGMENT_THRESHOLD_MM` là tham số hình học độc lập, mặc định `2 mm`; không liên quan threshold kênh đỏ dùng để detect/tạo mask chili.
+- `WRINKLE_SEGMENT_THRESHOLD_MM` là tham số hình học độc lập và có thể thay đổi; giá trị thử nghiệm hiện tại là `5 mm`. Nó không liên quan threshold kênh đỏ dùng để detect/tạo mask chili.
 - Hai đầu mỗi đoạn được nội suy chính xác sao cho chord đạt ngưỡng, thay vì chỉ chọn vertex có sẵn trên contour.
 - Độ cong dư mỗi đoạn là `arc/chord - 1`; wrinkle là trung bình độ cong dư của các đoạn.
 - Đoạn dư cuối được chia lại với đoạn trước để hai chord cuối gần đều nhau và không vượt threshold.
@@ -162,15 +174,14 @@ Kết quả thử nghiệm sau khi loại vùng cuống:
 | Chỉ số | Giá trị |
 | --- | ---: |
 | Baseline wrinkle | 0,066527 |
-| Wrinkle mới | 0,121040 |
-| Mean `arc/chord` | 1,121040 |
-| Số đoạn contour | 189 |
+| Wrinkle mới | 0,131135 |
+| Mean `arc/chord` | 1,131135 |
+| Số đoạn contour | 74 |
 | Số outer run | 6 |
-| Tổng chiều dài contour được dùng | 407,843 mm |
-| Chord lớn nhất | 2,000 mm |
-| Pixel mép gần cuống bị loại | 109 px |
+| Tổng chiều dài contour được dùng | 401,592 mm |
+| Chord lớn nhất | 5,000 mm |
 
-Notebook có ảnh trực quan cho wall, mép trong/ngoài, vùng cuống bị loại, skeleton, lát cắt độ dày, heatmap và các đoạn wrinkle. Synthetic tests cho thành thẳng/nghiêng, contour thẳng/zigzag, giới hạn chord và invariant loại cuống đều đã qua.
+Notebook có ảnh trực quan cho wall, mép trong/ngoài, vùng cuống bị loại, skeleton, lát cắt độ dày, heatmap và các đoạn wrinkle. Synthetic tests cho thành thẳng/nghiêng, contour thẳng/zigzag, giới hạn chord và invariant loại cuống đều đã qua. Lần chạy xác nhận gần nhất dùng ratio `0,094787 mm/pixel`, phát hiện 23 seed, 4 outer, 1 placenta và 1 endocarp.
 
 Trạng thái: **hoàn thành thử nghiệm notebook; chưa thay thế `get_thickness()` hoặc `get_wrinkle()` trong `src/object.py`.**
 
