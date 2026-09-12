@@ -14,7 +14,12 @@ except Exception:
 from scipy import ndimage as ndi
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed as sk_watershed
-from skimage.morphology import skeletonize
+from src.geometric_features import (
+    WRINKLE_SEGMENT_THRESHOLD_MM,
+    build_wall_data,
+    calculate_thickness_stats,
+    calculate_wrinkle,
+)
 
 CLASS_NAMES = {0: "seed", 1: "outer", 2: "placenta", 3: "endocarp", 4: "chili"}
 CLASS_COLORS = {
@@ -57,6 +62,10 @@ TIP_DIST_PENALTY_WEIGHT = 0.5
 
 CHILI_MIN_COMPONENT_AREA = 30
 CHILI_MIN_COMPONENT_RATIO = 0.002
+
+# Arithmetic mean of the QR ratios from the 22 bundled dataset images.  It is
+# an estimated scale only and is always accompanied by ``scale_source``.
+DEFAULT_DATASET_RATIO_MM_PER_PX = 0.094305839
 
 
 def find_centroid(matrix):
@@ -520,19 +529,30 @@ class Fruits(object):
         model_segment,
         chili_method=None,
         chili_threshold=None,
+        wrinkle_segment_threshold_mm=WRINKLE_SEGMENT_THRESHOLD_MM,
     ):
         self.path = path
         self.model_segment = model_segment
         self.model_detect = model_detect
         self.chili_method = chili_method
         self.chili_threshold = chili_threshold
+        if wrinkle_segment_threshold_mm <= 0:
+            raise ValueError("wrinkle_segment_threshold_mm must be greater than zero")
+        self.wrinkle_segment_threshold_mm = float(wrinkle_segment_threshold_mm)
 
         qr_result = self.qr_code()
         if qr_result is not None:
             self.ratio, _ = qr_result
+            self.scale_source = "qr"
+            self.scale_warning = None
         else:
-            print("QR code not found")
-            self.ratio = 1.0
+            self.ratio = DEFAULT_DATASET_RATIO_MM_PER_PX
+            self.scale_source = "dataset_mean_fallback"
+            self.scale_warning = (
+                "QR code not found; measurements use the dataset mean scale "
+                f"({self.ratio:.9f} mm/pixel)."
+            )
+            print(f"Warning: {self.scale_warning}")
 
         self.image = Image.open(path)
         self.width_img, self.height_img = self.image.size
@@ -546,7 +566,15 @@ class Fruits(object):
 
     def get_item(self, index):
         chili = Chili(
-            self.path, index, self.model_segment, self.box_cut[index], self.ratio
+            self.path,
+            index,
+            self.model_segment,
+            self.box_cut[index],
+            self.ratio,
+            chili_method=self.chili_method,
+            chili_threshold=self.chili_threshold,
+            scale_source=self.scale_source,
+            wrinkle_segment_threshold_mm=self.wrinkle_segment_threshold_mm,
         )
         print(index, self.box_cut[index])
         return chili
@@ -581,7 +609,7 @@ class Fruits(object):
         gray = cv2.cvtColor(org, cv2.COLOR_BGR2GRAY)
         H, W = gray.shape
         if decode is None:
-            return 1.0, H
+            return None
         qr_codes = decode(gray)
         if qr_codes:
             qr_code = qr_codes[0]
@@ -619,12 +647,19 @@ class Chili(Fruits):
         ratio,
         chili_method=None,
         chili_threshold=None,
+        scale_source="provided",
+        wrinkle_segment_threshold_mm=WRINKLE_SEGMENT_THRESHOLD_MM,
     ):
         self.path = path
         self.bbox = bbox
         self.model_segment = model_segment
         self.id = index
         self.ratio = ratio
+        self.scale_source = scale_source
+        if wrinkle_segment_threshold_mm <= 0:
+            raise ValueError("wrinkle_segment_threshold_mm must be greater than zero")
+        self.wrinkle_segment_threshold_mm = float(wrinkle_segment_threshold_mm)
+        self._wall_feature_data = None
         self.name = self.get_name()
         self.position, self.img = self.get_img(self.bbox)
 
@@ -975,21 +1010,13 @@ class Chili(Fruits):
         return round((mask_flesh / 255).sum() * (self.ratio**2), 2)
 
     def get_thickness(self):
-        mask_flesh = cv2.subtract(self.mask_chili, self.mask_endocarp)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_outer)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_stem)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_placenta)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_seed)
-        dist_transform = cv2.distanceTransform(mask_flesh, cv2.DIST_L2, 5)
-        max_dist = np.max(dist_transform)
-        flesh_binary = (mask_flesh > 0).astype(np.uint8)
-        skeleton = skeletonize(flesh_binary).astype(np.uint8)
-        skeleton_dists = dist_transform[skeleton > 0]
-        avg_dist_skeleton = np.mean(skeleton_dists) if len(skeleton_dists) > 0 else 0
-        return {
-            "max_thickness": round((max_dist * 2) * self.ratio, 2),
-            "avg_thickness": round((avg_dist_skeleton * 2) * self.ratio, 2),
-        }
+        return calculate_thickness_stats(self._get_wall_feature_data(), self.ratio)
+
+    def _get_wall_feature_data(self):
+        """Build wall geometry once and share it between thickness and wrinkle."""
+        if self._wall_feature_data is None:
+            self._wall_feature_data = build_wall_data(self, self.ratio)
+        return self._wall_feature_data
 
     def get_fruit_body_area(self):
         mask = cv2.subtract(self.mask_chili, self.mask_outer)
@@ -1174,22 +1201,14 @@ class Chili(Fruits):
         #Calculate complete fruit area using the original public name.
         return round((self.mask_chili > 0).sum() * (self.ratio ** 2), 2)
 
-    def get_wrinkle(self, ep=0.005):
-        #Calculate the original contour-based wrinkle score.
-        contours, _ = cv2.findContours(
-            self.mask_chili, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    def get_wrinkle(self, wrinkle_segment_threshold_mm=None):
+        """Calculate mean curvature excess on the true outer wall edge."""
+        threshold = (
+            self.wrinkle_segment_threshold_mm
+            if wrinkle_segment_threshold_mm is None
+            else float(wrinkle_segment_threshold_mm)
         )
-        if not contours:
-            return 0
-
-        contour = max(contours, key=cv2.contourArea)
-        perimeter = cv2.arcLength(contour, True)
-        if perimeter == 0:
-            return 0
-
-        approx = cv2.approxPolyDP(contour, ep * perimeter, True)
-        smoothness = cv2.arcLength(approx, True) / perimeter
-        return round(1 - smoothness, 5)
+        return calculate_wrinkle(self._get_wall_feature_data(), self.ratio, threshold)
 
     def get_hist(self):
         #Preserve the original red-channel histogram visualization helper.

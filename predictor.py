@@ -16,6 +16,14 @@ WEIGHT_MODEL_DETECT = None
 WEIGHT_MODEL_SEGMENT = './pretrain/yolov8_segment_v2.pt'
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
+
+def positive_float(value):
+    number = float(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than zero")
+    return number
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Chili Pepper Segmentation")
 
@@ -37,6 +45,12 @@ def parse_args():
         default=16,
         type=int,
         help="Offset added to the dominant red-channel value in threshold mode",
+    )
+    parser.add_argument(
+        "--wrinkle-segment-threshold-mm",
+        default=5.0,
+        type=positive_float,
+        help="Outer-wall chord threshold in mm used by the wrinkle feature",
     )
     parser.add_argument("--save_csv", action="store_true", help="save output result")
     parser.add_argument("--save_img", action="store_true", help="save image output")
@@ -75,7 +89,14 @@ def inference(args):
     rows = []
     for image_path in image_paths:
         name_image = Path(image_path).stem
-        chilis = Fruits(image_path, model_detect=model_detect, model_segment=model_segment)
+        chilis = Fruits(
+            image_path,
+            model_detect=model_detect,
+            model_segment=model_segment,
+            chili_method=args.chili_method,
+            chili_threshold=args.chili_threshold,
+            wrinkle_segment_threshold_mm=args.wrinkle_segment_threshold_mm,
+        )
 
         for chili in chilis.items:
             row = {
@@ -89,7 +110,12 @@ def inference(args):
                 'max_width': chili.width_fruit_stats['max'],
                 'rednees': chili.redness,
                 'area': chili.area_fruit,
-                'wrinkle': chili.wrinkle
+                'min_thickness': chili.thickness_stats['min_thickness'],
+                'average_thickness': chili.thickness_stats['avg_thickness'],
+                'max_thickness': chili.thickness_stats['max_thickness'],
+                'wrinkle': chili.wrinkle,
+                'scale_ratio': chili.ratio,
+                'scale_source': chili.scale_source,
             }
             rows.append(row)
         # results.append(chilis)

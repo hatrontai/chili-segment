@@ -18,6 +18,9 @@ The current implementation uses:
 - `src/detect.py`: chili detection logic
 - `src/segment.py`: YOLOv8 segmentation and mask-to-polygon post-processing
 - `src/object.py`: fruit/chili domain objects and feature calculations
+- `src/geometric_features.py`: wall skeleton, thickness ray-casting, and
+  outer-wall wrinkle geometry
+- `tests/test_geometric_features.py`: synthetic geometry and scale-fallback tests
 - `data/`: sample images and matching annotations
 - `pretrain/`: expected location for pretrained weights
 - `Dockerfile`: container setup for the web app
@@ -107,6 +110,8 @@ Useful flags:
 - `--use_model_det`: use the YOLO detector instead of threshold detection
 - `--weight_det`: detection weight path when `--use_model_det` is enabled
 - `--weight_seg`: segmentation weight path
+- `--wrinkle-segment-threshold-mm`: outer-wall chord threshold used for the
+  wrinkle feature (default: `5.0` mm; independent of the red threshold)
 - `--save_csv`: write results to `./runs/predict/output.csv`
 
 If you use `--save_csv`, make sure `./runs/predict/` exists first, because the script does not create that directory automatically.
@@ -135,9 +140,18 @@ The fallback detector is tuned for images that match the dataset layout used in 
 - fruit length
 - area
 - redness
-- wrinkle score
+- wall thickness (minimum, average, and maximum)
+- outer-wall wrinkle score (mean `arc/chord - 1`)
 
-If a QR code is detected, its size is used to estimate the pixel-to-real-world scale.
+If a QR code is detected, its 10 mm side is used to estimate the
+pixel-to-real-world scale. If QR decoding fails, runtime continues with the
+documented dataset-mean estimate `0.094305839 mm/pixel`; Web and CSV output mark
+the scale source as `dataset_mean_fallback`.
+
+Thickness is sampled every 1 mm along the longest skeleton backbone. Each
+sample uses the shortest valid straight line through the skeleton that crosses
+one inner and one outer wall edge. Wrinkle uses only the true outer wall edge
+and excludes the stem region.
 
 ## Notes
 

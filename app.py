@@ -47,8 +47,9 @@ FEATURE_COLUMNS = [
     "Flesh Area",
     "Fruit Body Area",
     "Placenta Area",
-    "Max Thickness",
+    "Min Thickness",
     "Average Thickness",
+    "Max Thickness",
     "Flesh/Placenta Ratio",
     "Seed Count",
     "Seed Area Sum",
@@ -63,6 +64,7 @@ FEATURE_COLUMNS = [
     "Seed Density",
     "Asymmetry Index",
     "Scale Ratio",
+    "Scale Source",
 ]
 
 EXTRA_MASKS = {
@@ -379,10 +381,10 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
     widths = chili.width_fruit_stats
     thickness = chili.thickness_stats
     seeds = chili.seed_stats
-    calibrated = chili.ratio != 1.0
-    unit = "mm" if calibrated else "px*"
-    area_unit = "mm2" if calibrated else "px2*"
-    scale_unit = "mm/pixel" if calibrated else "fallback (no QR)"
+    estimated_scale = chili.scale_source == "dataset_mean_fallback"
+    unit = "mm"
+    area_unit = "mm2"
+    scale_unit = "mm/pixel (dataset mean)" if estimated_scale else "mm/pixel"
     metrics = [
         f"Scale: {_format_metric(chili.ratio, 6)}  ({scale_unit})",
         f"BBox W x H: {_format_metric(chili.width_bbox)} x {_format_metric(chili.height_bbox)} {unit}",
@@ -392,7 +394,7 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
         f"Flesh area: {_format_metric(chili.endocarp_area)} {area_unit}",
         f"Placenta area: {_format_metric(chili.placenta_area)} {area_unit}",
         f"Flesh / placenta: {_format_metric(chili.flesh_placenta_ratio)}",
-        f"Thickness avg / max: {_format_metric(thickness['avg_thickness'])} / {_format_metric(thickness['max_thickness'])} {unit}",
+        f"Thickness min / avg / max: {_format_metric(thickness['min_thickness'])} / {_format_metric(thickness['avg_thickness'])} / {_format_metric(thickness['max_thickness'])} {unit}",
         f"Seed count: {_format_metric(chili.number_seeds)}",
         f"Seed area total: {_format_metric(seeds['sum'])} {area_unit}",
         f"Redness / uniformity: {_format_metric(chili.redness, 4)} / {_format_metric(chili.color_uniformity, 4)}",
@@ -417,10 +419,10 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
             cv2.LINE_AA,
         )
 
-    if chili.ratio == 1.0:
+    if estimated_scale:
         cv2.putText(
             card,
-            "* QR unavailable: measurements remain in pixel units",
+            "* QR unavailable: using estimated dataset-mean scale",
             (text_x, card_height - 18),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.39,
@@ -616,8 +618,9 @@ def _features_dataframe(fruits):
                 "Flesh Area": chili.endocarp_area,
                 "Fruit Body Area": chili.fruit_body_area,
                 "Placenta Area": chili.placenta_area,
-                "Max Thickness": thickness["max_thickness"],
+                "Min Thickness": thickness["min_thickness"],
                 "Average Thickness": thickness["avg_thickness"],
+                "Max Thickness": thickness["max_thickness"],
                 "Flesh/Placenta Ratio": chili.flesh_placenta_ratio,
                 "Seed Count": chili.number_seeds,
                 "Seed Area Sum": seeds["sum"],
@@ -632,6 +635,7 @@ def _features_dataframe(fruits):
                 "Seed Density": chili.seed_density,
                 "Asymmetry Index": chili.asymmetry_index,
                 "Scale Ratio": chili.ratio,
+                "Scale Source": chili.scale_source,
             }
         )
     return pd.DataFrame(rows, columns=FEATURE_COLUMNS)
@@ -649,7 +653,13 @@ def extract_chili_features(image_path):
     return _features_dataframe(fruits)
 
 
-def run_pipeline(upload_path, sample_name, chili_method, chili_threshold):
+def run_pipeline(
+    upload_path,
+    sample_name,
+    chili_method,
+    chili_threshold,
+    wrinkle_segment_threshold_mm=5.0,
+):
     image_path, source = _resolve_input_path(upload_path, sample_name)
     image_rgb = _read_rgb(image_path)
     height, width = image_rgb.shape[:2]
@@ -667,6 +677,7 @@ def run_pipeline(upload_path, sample_name, chili_method, chili_threshold):
         model_segment=model_segment,
         chili_method=chili_method,
         chili_threshold=chili_threshold,
+        wrinkle_segment_threshold_mm=wrinkle_segment_threshold_mm,
     )
     elapsed = time.perf_counter() - started_at
 
@@ -686,11 +697,7 @@ def run_pipeline(upload_path, sample_name, chili_method, chili_threshold):
     comparison_gallery = _build_comparison_gallery(fruits, image_rgb)
     features = _features_dataframe(fruits)
 
-    ratio_note = (
-        "1.0 (fallback; thường là không đọc được QR)"
-        if fruits.ratio == 1.0
-        else f"{fruits.ratio:.6f} mm/pixel"
-    )
+    ratio_note = f"{fruits.ratio:.6f} mm/pixel (`{fruits.scale_source}`)"
     chili_method_note = f"`{chili_method}`"
     if chili_method == "threshold":
         chili_method_note += f" (threshold offset={int(chili_threshold)})"
@@ -702,6 +709,7 @@ def run_pipeline(upload_path, sample_name, chili_method, chili_threshold):
         f"- **Tỷ lệ hiệu chỉnh:** {ratio_note}\n"
         f"- **Segmentation weight:** `{WEIGHT_MODEL_SEGMENT.name}`\n"
         f"- **Class chili:** {chili_method_note}\n"
+        f"- **Ngưỡng wrinkle:** {float(wrinkle_segment_threshold_mm):g} mm\n"
         f"- **Thiết bị:** `{DEVICE}`\n"
         f"- **Thời gian:** {elapsed:.2f} giây"
     )
@@ -711,6 +719,8 @@ def run_pipeline(upload_path, sample_name, chili_method, chili_threshold):
             "\n\n> Không phát hiện được quả ớt. Hãy kiểm tra tab Detection ROI "
             "để xác nhận ảnh có đúng bố cục mà threshold detector yêu cầu hay không."
         )
+    if fruits.scale_warning:
+        summary += f"\n\n> ⚠️ {fruits.scale_warning}"
 
     return (
         summary,
@@ -761,6 +771,14 @@ def build_demo():
                 value=16,
                 step=1,
                 label="Threshold offset cho class chili",
+            )
+            wrinkle_threshold_input = gr.Slider(
+                minimum=0.5,
+                maximum=20.0,
+                value=5.0,
+                step=0.5,
+                label="Wrinkle segment threshold (mm)",
+                info="Tham số hình học riêng, không liên quan threshold độ đỏ.",
             )
 
         run_button = gr.Button("Chạy toàn bộ pipeline", variant="primary")
@@ -902,6 +920,7 @@ def build_demo():
                 sample_input,
                 chili_method_input,
                 chili_threshold_input,
+                wrinkle_threshold_input,
             ],
             outputs=[
                 summary_output,

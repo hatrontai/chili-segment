@@ -1,6 +1,6 @@
 # Tiến độ dự án Chili Pepper Phenotyping
 
-> Cập nhật lần cuối: 11/09/2026  
+> Cập nhật lần cuối: 12/09/2026
 > Mục đích: ghi lại nội dung chính, trạng thái hiện tại và các việc nên làm tiếp theo để thuận tiện bàn giao/phát triển.
 
 ## 1. Tổng quan
@@ -32,19 +32,19 @@ Dự án có hai điểm vào:
 | Phân đoạn 5 lớp | Đã có | Runtime chính dùng `yolov8_segment_v2.pt` |
 | Hậu xử lý mask | Đã có | Làm sạch mask chili, xử lý endocarp, tách cuống khỏi placenta |
 | Chuẩn hóa hướng quả | Đã có | Dựa trên vùng xanh của cuống, hỗ trợ xoay 90°/180° |
-| Hiệu chỉnh kích thước bằng QR | Đã có | QR được xem là cạnh 10 mm; nếu không đọc được thì ratio = 1.0 |
-| Trích xuất đặc trưng | Đã có | Web xuất đầy đủ hơn CLI |
+| Hiệu chỉnh kích thước bằng QR | Đã có | QR được xem là cạnh 10 mm; nếu không đọc được dùng trung bình dataset `0,094305839 mm/pixel` và gắn cờ fallback |
+| Trích xuất đặc trưng | Đã có | Web và CLI đều xuất wrinkle cùng thickness min/trung bình/max |
 | Giao diện kiểm tra pipeline | Đã có | Hiển thị ROI, mask, bbox, crop, segmentation và bảng kết quả |
 | Docker | Đã có | Python 3.10, chạy Gradio ở cổng 7860 |
 | Notebook nghiên cứu | Đã có | Tiền xử lý, dò tham số, đánh giá pipeline và hậu xử lý endocarp |
-| Thử nghiệm thickness/wrinkle mới | Đã chạy thành công | Đang nằm trong notebook độc lập, chưa tích hợp vào runtime |
-| Kiểm thử tự động | Chưa có | Chưa thấy thư mục/file test hoặc CI |
+| Thickness/wrinkle mới | Đã tích hợp runtime | Dùng chung module hình học giữa `Chili`, Web và CLI |
+| Kiểm thử tự động | Đã có | Có synthetic tests cho skeleton, ray-cast và chia contour; chưa có CI |
 
 ## 3. Luồng xử lý runtime hiện tại
 
 ```text
 Ảnh đầu vào
-  -> đọc QR để tính mm/pixel (không có QR: ratio = 1.0)
+  -> đọc QR để tính mm/pixel (không có QR: dùng trung bình dataset và cảnh báo)
   -> bỏ 540 px ở mép trên
   -> phát hiện contour quả bằng ngưỡng kênh đỏ
   -> lọc contour có diện tích >= 10.000 px²
@@ -54,7 +54,8 @@ Dự án có hai điểm vào:
   -> class chili lấy từ threshold hoặc YOLO
   -> làm sạch, lấp lỗ và hợp nhất các mask
   -> tách stem khỏi placenta
-  -> tính đặc trưng hình học, màu sắc và hạt
+  -> dựng wall/skeleton, tính thickness và wrinkle mới
+  -> tính các đặc trưng hình học, màu sắc và hạt còn lại
   -> trả bảng kết quả/ảnh trực quan
 ```
 
@@ -75,14 +76,15 @@ Các ngưỡng quan trọng đang được hard-code:
 - Bbox: chiều rộng, chiều cao.
 - Kích thước quả: chiều rộng min/max/trung bình; chiều dài theo spine; chiều rộng/chiều dài theo 9 đoạn.
 - Diện tích: toàn quả, phần thịt, thân quả và placenta.
-- Độ dày phần thịt: lớn nhất và trung bình bằng distance transform.
+- Độ dày thành ớt: min/trung bình/max từ các lát cắt ray-cast cách nhau 1 mm trên longest backbone.
 - Hạt: số lượng, tổng/min/max/trung bình/độ lệch chuẩn diện tích; dùng watershed để tách cụm.
 - Màu: redness theo kênh `a*` của CIELAB và độ đồng đều màu.
 - Hình thái: wrinkle, curvature index, asymmetry index.
 - Tỷ lệ: flesh/placenta và seed density.
 - Tỷ lệ quy đổi theo QR (`mm/pixel`) nếu đọc được.
 
-Web UI trả khoảng 30 cột. CLI hiện chỉ xuất tập con gồm bbox, chiều rộng, redness, area và wrinkle.
+Web UI trả bảng đặc trưng đầy đủ. CLI xuất thêm thickness min/trung bình/max,
+wrinkle, tỷ lệ quy đổi và nguồn tỷ lệ.
 
 ## 5. Cấu trúc và vai trò các file
 
@@ -158,7 +160,7 @@ Kết quả thử nghiệm:
 | Tỷ lệ skeleton giữ lại | 93,24% |
 | Chế độ skeleton / lọc | `smoothed_wall`, `longest_geodesic` / `clean` |
 
-So với dữ liệu trước lọc (`mean=6,6719 mm`, `min=0,5437 mm`), bộ lọc đã loại các lát cắt cực ngắn bất thường. Backbone còn 3.527 pixel và là skeleton duy nhất dùng để tính thickness mới. Coverage chưa đạt 100% và giá trị lớn nhất vẫn cao, nên phương pháp vẫn cần ground truth cùng nhiều ảnh hơn trước khi đưa vào runtime.
+So với dữ liệu trước lọc (`mean=6,6719 mm`, `min=0,5437 mm`), bộ lọc đã loại các lát cắt cực ngắn bất thường. Backbone còn 3.527 pixel và là skeleton duy nhất dùng để tính thickness mới. Coverage chưa đạt 100% và giá trị lớn nhất vẫn cao, nên phương pháp vẫn cần ground truth cùng nhiều ảnh hơn dù đã được tích hợp runtime.
 
 ### Độ nhăn mới
 
@@ -183,7 +185,10 @@ Kết quả thử nghiệm sau khi loại vùng cuống:
 
 Notebook có ảnh trực quan cho wall, mép trong/ngoài, vùng cuống bị loại, skeleton, lát cắt độ dày, heatmap và các đoạn wrinkle. Synthetic tests cho thành thẳng/nghiêng, contour thẳng/zigzag, giới hạn chord và invariant loại cuống đều đã qua. Lần chạy xác nhận gần nhất dùng ratio `0,094787 mm/pixel`, phát hiện 23 seed, 4 outer, 1 placenta và 1 endocarp.
 
-Trạng thái: **hoàn thành thử nghiệm notebook; chưa thay thế `get_thickness()` hoặc `get_wrinkle()` trong `src/object.py`.**
+Trạng thái: **đã thay thế `get_thickness()` và `get_wrinkle()` trong runtime.**
+Các phép toán được đặt trong `src/geometric_features.py`; `Chili` cache wall data để
+hai đặc trưng không lặp lại bước dựng mask/skeleton. Gradio có slider wrinkle
+riêng mặc định `5 mm`; CLI có `--wrinkle-segment-threshold-mm`.
 
 ## 8. Vấn đề đã biết và điểm chưa đồng bộ
 
@@ -199,9 +204,9 @@ Trạng thái: **hoàn thành thử nghiệm notebook; chưa thay thế `get_thi
 5. `report.md` mô tả HSV Saturation + Otsu, ngưỡng diện tích 4.000 px² và SAHI tại inference; runtime hiện dùng histogram kênh đỏ + offset, ngưỡng 10.000 px² và không dùng SAHI trong luồng chính.
 6. `predictor.py --save_csv` không tự tạo thư mục `runs/predict/`.
 7. Requirements chưa khóa phiên bản; `torch` được import trực tiếp nhưng không được khai báo trực tiếp trong `requirements.txt`.
-8. Chưa có test tự động, bộ metric chuẩn hoặc CI để ngăn regression.
-9. Khi không có QR, các số đo dùng ratio `1.0`; khi đó giá trị thực chất theo pixel/pixel² chứ chưa phải mm/mm².
-10. Thickness/wrinkle mới hiện mới được đánh giá trên một quả ớt chuông; chưa có ground truth vật lý hoặc đánh giá trên toàn bộ dạng quả.
+8. Đã có synthetic unit tests cho hình học nhưng chưa có CI hoặc bộ metric ground truth.
+9. Khi không có QR, các số đo dùng tỷ lệ trung bình dataset; đây là giá trị ước lượng và được đánh dấu `dataset_mean_fallback` trong Web/CSV.
+10. Thickness/wrinkle mới hiện mới có regression tham chiếu trên một quả ớt chuông; chưa có ground truth vật lý hoặc đánh giá trên toàn bộ dạng quả.
 
 ## 9. Kiểm tra đã thực hiện cho bản ghi này
 
@@ -209,6 +214,12 @@ Trạng thái: **hoàn thành thử nghiệm notebook; chưa thay thế `get_thi
 - Đã thống kê dữ liệu, pretrained weights, kết quả trong `runs/` và nội dung chính của bốn notebook.
 - Đã parse AST toàn bộ file Python: `app.py`, `predictor.py`, `src/detect.py`, `src/segment.py`, `src/object.py` đều hợp lệ về cú pháp.
 - Đã chạy end-to-end notebook thickness/wrinkle mới trên `029_IT250232_2.jpg`; synthetic tests và real-image checks đều đạt.
+- Đã tích hợp hai đặc trưng vào runtime và thêm test tự động trong `tests/test_geometric_features.py`.
+- Đã chạy regression runtime trên `029_IT250232_2.jpg` sau tích hợp: quả đầu dùng QR thật
+  `0,09478673 mm/pixel`, thickness min/trung bình/max là `3,80 / 6,71 / 15,65 mm`
+  và wrinkle là `0,12202` với threshold `5 mm`. Pipeline xử lý đủ hai quả, không lỗi.
+- Đã chạy 11 synthetic/unit tests: tất cả đạt. Môi trường hiện cảnh báo bộ phiên bản
+  SciPy/NumPy chưa tương thích hoàn toàn (`scipy` yêu cầu `NumPy < 1.25`, đang có `1.26.4`).
 - Chưa đánh giá độ chính xác model hoặc hai đặc trưng mới trên toàn bộ dataset/ground truth.
 
 ## 10. Đề xuất công việc tiếp theo
@@ -216,9 +227,9 @@ Trạng thái: **hoàn thành thử nghiệm notebook; chưa thay thế `get_thi
 Thứ tự ưu tiên đề xuất:
 
 1. Đánh giá thickness/wrinkle mới trên nhiều quả dài và quả chuông; đối chiếu thickness với số đo vật lý thủ công.
-2. Xử lý các lát cắt thickness cực nhỏ, nâng coverage và chốt quy tắc loại ngoại lệ trước khi tích hợp runtime.
-3. Sau khi đạt tiêu chí đánh giá, chuyển thuật toán mới vào `src/object.py` và thêm tham số wrinkle riêng trên Web/CLI.
-4. Truyền đúng `chili_method`/`chili_threshold` từ `Fruits` xuống `Chili` và thêm test cho hai chế độ.
+2. Đo ground truth độ dày để tinh chỉnh bộ lọc lát cắt và đánh giá coverage.
+3. Thêm smoke test end-to-end khi môi trường test có `ultralytics` và model weight.
+4. Thêm test cho hai chế độ `chili_method`/`chili_threshold` đã được truyền từ `Fruits` xuống `Chili`.
 5. Sửa, chuẩn hóa và kiểm thử nhánh YOLO detection (kiểu kết quả, định dạng bbox, offset ROI).
 6. Bổ sung xử lý ảnh rỗng/không contour/ảnh thấp hơn 540 px cho cả web và CLI.
 7. Đồng bộ README/report với weight `v2` và thuật toán runtime thực tế.
