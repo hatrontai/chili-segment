@@ -10,6 +10,9 @@
 *.heic
 *.heif
 *.svg
+*.tex
+*.pdf
+GHI_CHU_CAP_NHAT.md
 
 # Generated artifacts and pretrained models
 pretrain/
