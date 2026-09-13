@@ -4,17 +4,20 @@ from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from PIL import Image
 from scipy import ndimage as ndi
 
 from src.geometric_features import (
-    extract_outer_edge_runs,
+    build_mesocarp_data,
+    calculate_mesocarp_thickness_stats,
+    extract_outer_mesocarp_edge_runs,
     longest_backbone_skeleton,
     measure_skeleton_point,
     sample_skeleton_at_spacing,
     segment_polyline_by_exact_chord,
 )
-from src.object import DEFAULT_DATASET_RATIO_MM_PER_PX, Fruits
+from src.object import CLASS_NAMES, Chili, DEFAULT_DATASET_RATIO_MM_PER_PX, Fruits
 
 
 class _NoDetectionModel:
@@ -38,6 +41,86 @@ class ScaleFallbackTests(unittest.TestCase):
         self.assertAlmostEqual(fruits.ratio, DEFAULT_DATASET_RATIO_MM_PER_PX)
         self.assertEqual(fruits.scale_source, "dataset_mean_fallback")
         self.assertIn("QR code not found", fruits.scale_warning)
+
+
+class TerminologyTests(unittest.TestCase):
+    def test_class_two_is_pcp_without_changing_its_id(self):
+        self.assertEqual(CLASS_NAMES[2], "PCP")
+
+    def test_mesocarp_excludes_all_non_mesocarp_classes(self):
+        shape = (60, 80)
+        chili = type("SyntheticChili", (), {})()
+        chili.mask_chili = np.full(shape, 255, dtype=np.uint8)
+        chili.mask_endocarp = np.zeros(shape, dtype=np.uint8)
+        chili.mask_outer = np.zeros(shape, dtype=np.uint8)
+        chili.mask_pcp = np.zeros(shape, dtype=np.uint8)
+        chili.mask_seed = np.zeros(shape, dtype=np.uint8)
+        chili.mask_pedicel = np.zeros(shape, dtype=np.uint8)
+        chili.mask_endocarp[20:40, 20:35] = 255
+        chili.mask_outer[:, :5] = 255
+        chili.mask_pcp[15:45, 40:55] = 255
+        chili.mask_seed[30:35, 60:65] = 255
+        excluded = (
+            (chili.mask_endocarp > 0)
+            | (chili.mask_outer > 0)
+            | (chili.mask_pcp > 0)
+            | (chili.mask_seed > 0)
+        )
+        chili.mask_mesocarp = (~excluded).astype(np.uint8) * 255
+
+        data = build_mesocarp_data(chili, ratio=0.1)
+
+        self.assertFalse(bool(np.any(data["mesocarp"] & excluded)))
+
+    def test_pcp_is_partitioned_into_pedicel_region_and_placenta(self):
+        chili = Chili.__new__(Chili)
+        chili.mask_pcp = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_pcp[1:9, 2:8] = 255
+        pedicel = np.zeros_like(chili.mask_pcp)
+        pedicel[1:4, 2:8] = 255
+        placenta = chili.mask_pcp.copy()
+        placenta[1:4, 2:8] = 0
+        case1_result = (
+            pedicel,
+            placenta,
+            None,
+            None,
+            None,
+            [],
+            True,
+            "CASE1_OK",
+        )
+
+        with patch("src.object.run_case1_armpit", return_value=case1_result):
+            mask_pedicel, mask_placenta = chili._separate_pedicel_and_placenta()
+
+        np.testing.assert_array_equal(
+            chili.mask_pcp, np.bitwise_or(mask_pedicel, mask_placenta)
+        )
+        self.assertFalse(bool(np.any((mask_pedicel > 0) & (mask_placenta > 0))))
+
+    def test_flesh_placenta_ratio_requires_ten_clean_placenta_pixels(self):
+        chili = Chili.__new__(Chili)
+        chili.ratio = 0.1
+        chili.mask_chili = np.full((10, 10), 255, dtype=np.uint8)
+        chili.mask_outer = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_outer[0, :] = 255
+        chili.mask_pcp = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_pcp[1, :] = 255
+        chili.mask_seed = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_seed[2, :] = 255
+        chili.mask_endocarp = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_endocarp[3, :] = 255
+        chili.mask_placenta = np.zeros((10, 10), dtype=np.uint8)
+
+        chili.mask_placenta[1, :9] = 255
+        self.assertIsNone(chili.get_flesh_placenta_ratio())
+
+        chili.mask_placenta[1, 9] = 255
+        self.assertEqual(chili.get_flesh_placenta_ratio(), 7.0)
+        self.assertTrue(
+            bool(np.all(chili._get_flesh_mask()[chili.mask_endocarp > 0] > 0))
+        )
 
 
 class SkeletonSamplingTests(unittest.TestCase):
@@ -99,42 +182,73 @@ class SkeletonSamplingTests(unittest.TestCase):
 
 class ThicknessTests(unittest.TestCase):
     @staticmethod
-    def synthetic_wall(angle_deg=0.0):
+    def synthetic_mesocarp(angle_deg=0.0):
         size = 121
         yy, xx = np.mgrid[:size, :size]
         angle = np.deg2rad(angle_deg)
         normal = np.array([-np.sin(angle), np.cos(angle)])
         signed_normal = (xx - 60) * normal[0] + (yy - 60) * normal[1]
-        wall = np.abs(signed_normal) <= 5.0
+        mesocarp = np.abs(signed_normal) <= 5.0
         inner_reference = signed_normal < -5.0
         outer_reference = signed_normal > 5.0
         return {
-            "wall": wall,
+            "mesocarp": mesocarp,
             "distance_to_inner": ndi.distance_transform_edt(~inner_reference),
             "distance_to_outer": ndi.distance_transform_edt(~outer_reference),
-            "signed_distance": ndi.distance_transform_edt(wall)
-            - ndi.distance_transform_edt(~wall),
+            "signed_distance": ndi.distance_transform_edt(mesocarp)
+            - ndi.distance_transform_edt(~mesocarp),
         }
 
-    def test_straight_and_diagonal_wall(self):
+    def test_straight_and_diagonal_mesocarp(self):
         for angle, expected_px in ((0.0, 11.0), (27.0, 10.0)):
             with self.subTest(angle=angle):
                 result = measure_skeleton_point(
-                    (60.0, 60.0), self.synthetic_wall(angle)
+                    (60.0, 60.0), self.synthetic_mesocarp(angle)
                 )
                 self.assertIsNotNone(result)
                 self.assertLessEqual(abs(result["length_px"] - expected_px), 0.3)
 
+    def test_mesocarp_thickness_schema_is_ordered(self):
+        measured = pd.DataFrame(
+            {
+                "measurement_status": ["measured"] * 3,
+                "thickness_mm": [2.0, 4.0, 6.0],
+            }
+        )
+        with patch(
+            "src.geometric_features.measure_mesocarp_thickness",
+            return_value=measured,
+        ), patch(
+            "src.geometric_features.filter_clean_thickness_points",
+            return_value=measured,
+        ):
+            stats = calculate_mesocarp_thickness_stats({}, ratio=0.1)
+
+        self.assertEqual(
+            set(stats),
+            {
+                "min_mesocarp_thickness",
+                "avg_mesocarp_thickness",
+                "max_mesocarp_thickness",
+            },
+        )
+        self.assertLessEqual(
+            stats["min_mesocarp_thickness"], stats["avg_mesocarp_thickness"]
+        )
+        self.assertLessEqual(
+            stats["avg_mesocarp_thickness"], stats["max_mesocarp_thickness"]
+        )
+
     def test_curved_annulus_crosses_both_edges(self):
         yy, xx = np.mgrid[:151, :151]
         radius = np.hypot(xx - 75, yy - 75)
-        wall = (radius >= 35) & (radius <= 45)
+        mesocarp = (radius >= 35) & (radius <= 45)
         data = {
-            "wall": wall,
+            "mesocarp": mesocarp,
             "distance_to_inner": ndi.distance_transform_edt(~(radius < 35)),
             "distance_to_outer": ndi.distance_transform_edt(~(radius > 45)),
-            "signed_distance": ndi.distance_transform_edt(wall)
-            - ndi.distance_transform_edt(~wall),
+            "signed_distance": ndi.distance_transform_edt(mesocarp)
+            - ndi.distance_transform_edt(~mesocarp),
         }
         result = measure_skeleton_point((115.0, 75.0), data)
 
@@ -188,24 +302,24 @@ class WrinkleTests(unittest.TestCase):
             max(segment["chord_px"] for segment in segments), 20.0 + 0.01
         )
 
-    def test_outer_runs_never_include_stem_exclusion(self):
-        wall = np.zeros((80, 100), dtype=bool)
-        wall[10:70, 10:90] = True
-        inner_reference = np.zeros_like(wall)
+    def test_outer_runs_never_include_pedicel_exclusion(self):
+        mesocarp = np.zeros((80, 100), dtype=bool)
+        mesocarp[10:70, 10:90] = True
+        inner_reference = np.zeros_like(mesocarp)
         inner_reference[20:60, 20:80] = True
-        outer_reference = ~wall
-        stem_exclusion = np.zeros_like(wall)
-        stem_exclusion[:18, 40:61] = True
+        outer_reference = ~mesocarp
+        pedicel_exclusion = np.zeros_like(mesocarp)
+        pedicel_exclusion[:18, 40:61] = True
         data = {
-            "wall": wall,
+            "mesocarp": mesocarp,
             "distance_to_inner": ndi.distance_transform_edt(~inner_reference),
             "distance_to_outer": ndi.distance_transform_edt(~outer_reference),
-            "stem_exclusion": stem_exclusion,
+            "pedicel_exclusion": pedicel_exclusion,
         }
 
-        for run in extract_outer_edge_runs(data):
+        for run in extract_outer_mesocarp_edge_runs(data):
             xy = np.rint(run).astype(int)
-            self.assertFalse(bool(stem_exclusion[xy[:, 1], xy[:, 0]].any()))
+            self.assertFalse(bool(pedicel_exclusion[xy[:, 1], xy[:, 0]].any()))
 
 
 if __name__ == "__main__":

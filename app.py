@@ -44,13 +44,13 @@ FEATURE_COLUMNS = [
     "Width (9 segments)",
     "Length (9 segments)",
     "Area",
-    "Flesh Area",
+    "Mesocarp Area",
     "Fruit Body Area",
     "Placenta Area",
-    "Min Thickness",
-    "Average Thickness",
-    "Max Thickness",
-    "Flesh/Placenta Ratio",
+    "Min Mesocarp Thickness",
+    "Average Mesocarp Thickness",
+    "Max Mesocarp Thickness",
+    "Flesh-to-Placenta Ratio",
     "Seed Count",
     "Seed Area Sum",
     "Seed Area Min",
@@ -59,7 +59,7 @@ FEATURE_COLUMNS = [
     "Seed Area Std",
     "Redness",
     "Color Uniformity",
-    "Wrinkle",
+    "Mesocarp Wrinkle Index",
     "Curvature Index",
     "Seed Density",
     "Asymmetry Index",
@@ -68,8 +68,8 @@ FEATURE_COLUMNS = [
 ]
 
 EXTRA_MASKS = {
-    "stem": (255, 165, 0),
-    "true_placenta": (0, 215, 255),
+    "pedicel": (255, 165, 0),
+    "placenta": (0, 215, 255),
 }
 
 
@@ -249,7 +249,7 @@ def _build_full_segmentation(image_rgb, fruits):
     mask_layers = [
         ("mask_chili", CLASS_COLORS[4]),
         ("mask_endocarp", CLASS_COLORS[3]),
-        ("mask_placenta", CLASS_COLORS[2]),
+        ("mask_pcp", CLASS_COLORS[2]),
         ("mask_outer", CLASS_COLORS[1]),
         ("mask_seed", CLASS_COLORS[0]),
     ]
@@ -379,7 +379,7 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
     cv2.putText(card, "SEGMENT", (image_width + 62, 76), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (20, 20, 20), 2, cv2.LINE_AA)
 
     widths = chili.width_fruit_stats
-    thickness = chili.thickness_stats
+    thickness = chili.mesocarp_thickness_stats
     seeds = chili.seed_stats
     estimated_scale = chili.scale_source == "dataset_mean_fallback"
     unit = "mm"
@@ -391,14 +391,14 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
         f"Width min / avg / max: {_format_metric(widths['min'])} / {_format_metric(widths['avg'])} / {_format_metric(widths['max'])} {unit}",
         f"Length: {_format_metric(chili.length_fruit)} {unit}",
         f"Whole fruit area: {_format_metric(chili.area_fruit)} {area_unit}",
-        f"Flesh area: {_format_metric(chili.endocarp_area)} {area_unit}",
+        f"Mesocarp area: {_format_metric(chili.mesocarp_area)} {area_unit}",
         f"Placenta area: {_format_metric(chili.placenta_area)} {area_unit}",
         f"Flesh / placenta: {_format_metric(chili.flesh_placenta_ratio)}",
-        f"Thickness min / avg / max: {_format_metric(thickness['min_thickness'])} / {_format_metric(thickness['avg_thickness'])} / {_format_metric(thickness['max_thickness'])} {unit}",
+        f"Mesocarp thickness min / avg / max: {_format_metric(thickness['min_mesocarp_thickness'])} / {_format_metric(thickness['avg_mesocarp_thickness'])} / {_format_metric(thickness['max_mesocarp_thickness'])} {unit}",
         f"Seed count: {_format_metric(chili.number_seeds)}",
         f"Seed area total: {_format_metric(seeds['sum'])} {area_unit}",
         f"Redness / uniformity: {_format_metric(chili.redness, 4)} / {_format_metric(chili.color_uniformity, 4)}",
-        f"Wrinkle: {_format_metric(chili.wrinkle, 5)}",
+        f"Mesocarp wrinkle index: {_format_metric(chili.mesocarp_wrinkle_index, 5)}",
         f"Curvature index: {_format_metric(chili.curvature_index, 4)}  (1 = straight)",
         f"Seed density: {_format_metric(chili.seed_density, 4)}",
         f"Asymmetry index: {_format_metric(chili.asymmetry_index, 4)}",
@@ -576,11 +576,11 @@ def _build_class_mask_gallery(fruits):
     mask_attributes = [
         ("seed", "mask_seed", CLASS_COLORS[0]),
         ("outer", "mask_outer", CLASS_COLORS[1]),
-        ("placenta", "mask_placenta", CLASS_COLORS[2]),
+        ("PCP", "mask_pcp", CLASS_COLORS[2]),
         ("endocarp", "mask_endocarp", CLASS_COLORS[3]),
         ("chili", "mask_chili", CLASS_COLORS[4]),
-        ("stem", "mask_stem", EXTRA_MASKS["stem"]),
-        ("true placenta", "mask_true_placenta", EXTRA_MASKS["true_placenta"]),
+        ("pedicel", "mask_pedicel", EXTRA_MASKS["pedicel"]),
+        ("placenta", "mask_placenta", EXTRA_MASKS["placenta"]),
     ]
 
     for chili in fruits.items:
@@ -600,7 +600,7 @@ def _features_dataframe(fruits):
     rows = []
     for chili in fruits.items:
         widths = chili.width_fruit_stats
-        thickness = chili.thickness_stats
+        thickness = chili.mesocarp_thickness_stats
         seeds = chili.seed_stats
         rows.append(
             {
@@ -615,13 +615,13 @@ def _features_dataframe(fruits):
                 "Width (9 segments)": chili.width_fruit_9seg,
                 "Length (9 segments)": chili.length_fruit_9seg,
                 "Area": chili.area_fruit,
-                "Flesh Area": chili.endocarp_area,
+                "Mesocarp Area": chili.mesocarp_area,
                 "Fruit Body Area": chili.fruit_body_area,
                 "Placenta Area": chili.placenta_area,
-                "Min Thickness": thickness["min_thickness"],
-                "Average Thickness": thickness["avg_thickness"],
-                "Max Thickness": thickness["max_thickness"],
-                "Flesh/Placenta Ratio": chili.flesh_placenta_ratio,
+                "Min Mesocarp Thickness": thickness["min_mesocarp_thickness"],
+                "Average Mesocarp Thickness": thickness["avg_mesocarp_thickness"],
+                "Max Mesocarp Thickness": thickness["max_mesocarp_thickness"],
+                "Flesh-to-Placenta Ratio": chili.flesh_placenta_ratio,
                 "Seed Count": chili.number_seeds,
                 "Seed Area Sum": seeds["sum"],
                 "Seed Area Min": seeds["min"],
@@ -630,7 +630,7 @@ def _features_dataframe(fruits):
                 "Seed Area Std": seeds["std"],
                 "Redness": chili.redness,
                 "Color Uniformity": chili.color_uniformity,
-                "Wrinkle": chili.wrinkle,
+                "Mesocarp Wrinkle Index": chili.mesocarp_wrinkle_index,
                 "Curvature Index": chili.curvature_index,
                 "Seed Density": chili.seed_density,
                 "Asymmetry Index": chili.asymmetry_index,
@@ -658,7 +658,7 @@ def run_pipeline(
     sample_name,
     chili_method,
     chili_threshold,
-    wrinkle_segment_threshold_mm=5.0,
+    mesocarp_wrinkle_segment_threshold_mm=5.0,
 ):
     image_path, source = _resolve_input_path(upload_path, sample_name)
     image_rgb = _read_rgb(image_path)
@@ -677,7 +677,9 @@ def run_pipeline(
         model_segment=model_segment,
         chili_method=chili_method,
         chili_threshold=chili_threshold,
-        wrinkle_segment_threshold_mm=wrinkle_segment_threshold_mm,
+        mesocarp_wrinkle_segment_threshold_mm=(
+            mesocarp_wrinkle_segment_threshold_mm
+        ),
     )
     elapsed = time.perf_counter() - started_at
 
@@ -709,7 +711,7 @@ def run_pipeline(
         f"- **Tỷ lệ hiệu chỉnh:** {ratio_note}\n"
         f"- **Segmentation weight:** `{WEIGHT_MODEL_SEGMENT.name}`\n"
         f"- **Class chili:** {chili_method_note}\n"
-        f"- **Ngưỡng wrinkle:** {float(wrinkle_segment_threshold_mm):g} mm\n"
+        f"- **Ngưỡng mesocarp wrinkle:** {float(mesocarp_wrinkle_segment_threshold_mm):g} mm\n"
         f"- **Thiết bị:** `{DEVICE}`\n"
         f"- **Thời gian:** {elapsed:.2f} giây"
     )
@@ -763,7 +765,7 @@ def build_demo():
                 choices=["threshold", "yolo"],
                 value="threshold",
                 label="Phương pháp tạo class chili",
-                info="Các class seed/outer/placenta/endocarp vẫn dùng YOLO.",
+                info="Các class seed/outer/PCP/endocarp vẫn dùng YOLO.",
             )
             chili_threshold_input = gr.Slider(
                 minimum=0,
@@ -772,12 +774,12 @@ def build_demo():
                 step=1,
                 label="Threshold offset cho class chili",
             )
-            wrinkle_threshold_input = gr.Slider(
+            mesocarp_wrinkle_threshold_input = gr.Slider(
                 minimum=0.5,
                 maximum=20.0,
                 value=5.0,
                 step=0.5,
-                label="Wrinkle segment threshold (mm)",
+                label="Mesocarp wrinkle segment threshold (mm)",
                 info="Tham số hình học riêng, không liên quan threshold độ đỏ.",
             )
 
@@ -839,7 +841,7 @@ def build_demo():
                     [
                         ("seed", CLASS_COLORS[0]),
                         ("outer", CLASS_COLORS[1]),
-                        ("placenta", CLASS_COLORS[2]),
+                        ("PCP", CLASS_COLORS[2]),
                         ("endocarp", CLASS_COLORS[3]),
                         ("chili", CLASS_COLORS[4]),
                     ]
@@ -865,11 +867,11 @@ def build_demo():
                     [
                         ("seed", CLASS_COLORS[0]),
                         ("outer", CLASS_COLORS[1]),
-                        ("placenta", CLASS_COLORS[2]),
+                        ("PCP", CLASS_COLORS[2]),
                         ("endocarp", CLASS_COLORS[3]),
                         ("chili", CLASS_COLORS[4]),
-                        ("stem", EXTRA_MASKS["stem"]),
-                        ("true placenta", EXTRA_MASKS["true_placenta"]),
+                        ("pedicel", EXTRA_MASKS["pedicel"]),
+                        ("placenta", EXTRA_MASKS["placenta"]),
                     ]
                 )
             )
@@ -920,7 +922,7 @@ def build_demo():
                 sample_input,
                 chili_method_input,
                 chili_threshold_input,
-                wrinkle_threshold_input,
+                mesocarp_wrinkle_threshold_input,
             ],
             outputs=[
                 summary_output,

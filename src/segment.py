@@ -9,7 +9,7 @@ from ultralytics import YOLO
 CLASS_NAMES = {
     0: "seed",
     1: "outer",
-    2: "placenta",
+    2: "PCP",
     3: "endocarp",
     4: "chili",
 }
@@ -23,6 +23,11 @@ class SegmentModel:
                  chili_method='threshold', chili_threshold=16):
         if model_name == 'yolo':
             self.model = YOLO(weight_path, task='segment')
+            model_names = self.model.model.names
+            if isinstance(model_names, dict):
+                model_names[2] = CLASS_NAMES[2]
+            elif len(model_names) > 2:
+                model_names[2] = CLASS_NAMES[2]
         else:
             raise ValueError("Unsupported model_name. Please set model_name to 'yolo'.")
 

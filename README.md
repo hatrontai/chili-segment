@@ -18,8 +18,8 @@ The current implementation uses:
 - `src/detect.py`: chili detection logic
 - `src/segment.py`: YOLOv8 segmentation and mask-to-polygon post-processing
 - `src/object.py`: fruit/chili domain objects and feature calculations
-- `src/geometric_features.py`: wall skeleton, thickness ray-casting, and
-  outer-wall wrinkle geometry
+- `src/geometric_features.py`: mesocarp skeleton, thickness ray-casting, and
+  outer-mesocarp wrinkle geometry
 - `tests/test_geometric_features.py`: synthetic geometry and scale-fallback tests
 - `data/`: sample images and matching annotations
 - `pretrain/`: expected location for pretrained weights
@@ -110,8 +110,9 @@ Useful flags:
 - `--use_model_det`: use the YOLO detector instead of threshold detection
 - `--weight_det`: detection weight path when `--use_model_det` is enabled
 - `--weight_seg`: segmentation weight path
-- `--wrinkle-segment-threshold-mm`: outer-wall chord threshold used for the
-  wrinkle feature (default: `5.0` mm; independent of the red threshold)
+- `--mesocarp-wrinkle-segment-threshold-mm`: outer-mesocarp chord threshold
+  used for the wrinkle feature (default: `5.0` mm; independent of the red
+  threshold)
 - `--save_csv`: write results to `./runs/predict/output.csv`
 
 If you use `--save_csv`, make sure `./runs/predict/` exists first, because the script does not create that directory automatically.
@@ -129,7 +130,9 @@ The fallback detector is tuned for images that match the dataset layout used in 
 
 ### Segmentation
 
-`src/segment.py` wraps a YOLOv8 segmentation model and post-processes the masks into polygons. The code focuses on class `3` (`endocarp`) for mask cleanup and polygon reconstruction.
+`src/segment.py` wraps a YOLOv8 segmentation model and post-processes the masks
+into polygons. Class ID `2` is the PCP class (Placenta + Pedicel), and
+class `3` is `endocarp`. The class IDs remain unchanged from model training.
 
 ### Feature Extraction
 
@@ -140,18 +143,29 @@ The fallback detector is tuned for images that match the dataset layout used in 
 - fruit length
 - area
 - redness
-- wall thickness (minimum, average, and maximum)
-- outer-wall wrinkle score (mean `arc/chord - 1`)
+- mesocarp area and flesh-to-placenta ratio
+- mesocarp thickness (minimum, average, and maximum)
+- mesocarp wrinkle index (mean `arc/chord - 1`)
 
 If a QR code is detected, its 10 mm side is used to estimate the
 pixel-to-real-world scale. If QR decoding fails, runtime continues with the
 documented dataset-mean estimate `0.094305839 mm/pixel`; Web and CSV output mark
 the scale source as `dataset_mean_fallback`.
 
-Thickness is sampled every 1 mm along the longest skeleton backbone. Each
-sample uses the shortest valid straight line through the skeleton that crosses
-one inner and one outer wall edge. Wrinkle uses only the true outer wall edge
-and excludes the stem region.
+The PCP mask is separated into the entire green pedicel and the remaining
+placenta.
+Mesocarp thickness is sampled every 1 mm along the longest skeleton backbone.
+Each sample uses the shortest valid straight line through the skeleton that
+crosses one inner and one outer mesocarp edge. The mesocarp wrinkle index uses
+only the true outer mesocarp edge and excludes the pedicel region.
+
+The public runtime names use `mask_pcp`, `mask_pedicel`, `mask_placenta`, and
+`mask_mesocarp`. Feature outputs use `mesocarp_area`,
+`mesocarp_thickness_stats` and `mesocarp_wrinkle_index`. The separate
+`flesh_placenta_ratio` feature retains its original definition
+(`A_flesh / A_placenta`): its flesh mask excludes outer, PCP, and seed while
+retaining endocarp. It is reported only when the cleaned placenta mask contains
+at least 10 pixels. Legacy wall/stem identifiers are not retained.
 
 ## Notes
 

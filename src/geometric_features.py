@@ -1,4 +1,4 @@
-"""Geometric wall-thickness and outer-wall wrinkle measurements.
+"""Geometric mesocarp-thickness and outer-mesocarp wrinkle measurements.
 
 The implementation in this module is the runtime counterpart of
 ``wrinkle_thickness_experiment.ipynb``.  Distances are expressed in millimetres
@@ -18,8 +18,8 @@ from scipy.spatial import cKDTree
 from skimage.morphology import skeletonize
 
 
-WRINKLE_SEGMENT_THRESHOLD_MM = 5.0
-THICKNESS_SAMPLE_SPACING_MM = 1.0
+MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM = 5.0
+MESOCARP_THICKNESS_SAMPLE_SPACING_MM = 1.0
 SKELETON_CLOSING_MM = 1.4
 SKELETON_OPENING_MM = 0.6
 
@@ -121,17 +121,17 @@ def longest_backbone_skeleton(skeleton):
     return output
 
 
-def smooth_wall_for_skeleton(
-    wall,
+def smooth_mesocarp_for_skeleton(
+    mesocarp,
     ratio,
     closing_mm=SKELETON_CLOSING_MM,
     opening_mm=SKELETON_OPENING_MM,
 ):
-    """Smooth only the skeleton source; measurements still use the raw wall."""
+    """Smooth only the skeleton source; measurements still use raw mesocarp."""
     closing_size_px = max(3, int(round(closing_mm / ratio)))
     opening_size_px = max(2, int(round(opening_mm / ratio)))
     closed = ndi.binary_closing(
-        wall, structure=np.ones((closing_size_px, closing_size_px))
+        mesocarp, structure=np.ones((closing_size_px, closing_size_px))
     )
     smoothed = ndi.binary_opening(
         closed, structure=np.ones((opening_size_px, opening_size_px))
@@ -144,49 +144,49 @@ def smooth_wall_for_skeleton(
     return smoothed
 
 
-def build_wall_data(chili, ratio):
-    """Create the wall, its inner/outer references and measurement skeleton."""
+def build_mesocarp_data(chili, ratio):
+    """Create mesocarp, its inner/outer references and measurement skeleton."""
     if ratio <= 0:
         raise ValueError("ratio must be greater than zero")
 
     chili_mask = _as_bool(chili.mask_chili)
     endocarp = _as_bool(chili.mask_endocarp)
     outer = _as_bool(chili.mask_outer)
-    placenta = _as_bool(chili.mask_placenta)
+    pcp = _as_bool(chili.mask_pcp)
     seed = _as_bool(chili.mask_seed)
-    stem = _as_bool(chili.mask_stem)
+    pedicel = _as_bool(chili.mask_pedicel)
 
-    wall = chili_mask & ~(endocarp | outer | placenta | seed)
-    labels, count = ndi.label(wall)
+    mesocarp = _as_bool(chili.mask_mesocarp)
+    labels, count = ndi.label(mesocarp)
     if count:
-        sizes = ndi.sum(wall, labels, range(1, count + 1))
+        sizes = ndi.sum(mesocarp, labels, range(1, count + 1))
         keep = [index + 1 for index, size in enumerate(sizes) if size >= 30]
-        wall = np.isin(labels, keep)
+        mesocarp = np.isin(labels, keep)
 
-    boundary = wall & ~ndi.binary_erosion(wall, structure=np.ones((3, 3)))
-    inner_reference = endocarp | placenta | seed
+    boundary = mesocarp & ~ndi.binary_erosion(mesocarp, structure=np.ones((3, 3)))
+    inner_reference = endocarp | pcp | seed
     outer_reference = outer | ~chili_mask
     distance_to_inner = ndi.distance_transform_edt(~inner_reference)
     distance_to_outer = ndi.distance_transform_edt(~outer_reference)
     inner_edge = boundary & (distance_to_inner <= distance_to_outer)
     outer_edge = boundary & (distance_to_outer < distance_to_inner)
 
-    # This is raster tolerance around the stem, not the wrinkle threshold.
-    stem_exclusion = ndi.binary_dilation(
-        stem, structure=np.ones((3, 3)), iterations=2
+    # This is raster tolerance around the pedicel, not the wrinkle threshold.
+    pedicel_exclusion = ndi.binary_dilation(
+        pedicel, structure=np.ones((3, 3)), iterations=2
     )
-    signed_distance = ndi.distance_transform_edt(wall) - ndi.distance_transform_edt(
-        ~wall
+    signed_distance = ndi.distance_transform_edt(mesocarp) - ndi.distance_transform_edt(
+        ~mesocarp
     )
 
-    raw_skeleton = skeletonize(wall)
-    wall_for_skeleton = smooth_wall_for_skeleton(wall, ratio)
-    smoothed_skeleton = skeletonize(wall_for_skeleton)
+    raw_skeleton = skeletonize(mesocarp)
+    mesocarp_for_skeleton = smooth_mesocarp_for_skeleton(mesocarp, ratio)
+    smoothed_skeleton = skeletonize(mesocarp_for_skeleton)
     minimum_pixels = max(20, int(0.50 * np.count_nonzero(raw_skeleton)))
     use_smoothed = np.count_nonzero(smoothed_skeleton) >= minimum_pixels
     source_skeleton = smoothed_skeleton if use_smoothed else raw_skeleton
     skeleton = longest_backbone_skeleton(source_skeleton)
-    measurement_skeleton = skeleton & wall
+    measurement_skeleton = skeleton & mesocarp
     if np.count_nonzero(measurement_skeleton) < 20:
         source_skeleton = raw_skeleton
         skeleton = longest_backbone_skeleton(raw_skeleton)
@@ -194,7 +194,7 @@ def build_wall_data(chili, ratio):
         use_smoothed = False
 
     return {
-        "wall": wall,
+        "mesocarp": mesocarp,
         "boundary": boundary,
         "inner_reference": inner_reference,
         "outer_reference": outer_reference,
@@ -202,13 +202,13 @@ def build_wall_data(chili, ratio):
         "distance_to_outer": distance_to_outer,
         "inner_edge": inner_edge,
         "outer_edge": outer_edge,
-        "stem_exclusion": stem_exclusion,
-        "wrinkle_outer_edge": outer_edge & ~stem_exclusion,
+        "pedicel_exclusion": pedicel_exclusion,
+        "wrinkle_outer_mesocarp_edge": outer_edge & ~pedicel_exclusion,
         "signed_distance": signed_distance,
-        "wall_for_skeleton": wall_for_skeleton,
+        "mesocarp_for_skeleton": mesocarp_for_skeleton,
         "skeleton": skeleton,
         "measurement_skeleton": measurement_skeleton,
-        "skeleton_source": "smoothed_wall" if use_smoothed else "raw_wall",
+        "skeleton_source": "smoothed_mesocarp" if use_smoothed else "raw_mesocarp",
     }
 
 
@@ -286,26 +286,26 @@ def ray_exits(center_xy, directions, signed_distance):
     return np.asarray(center_xy) + roots[:, None] * directions, roots, valid
 
 
-def sections_for_angles(center_xy, angles, wall_data):
+def sections_for_angles(center_xy, angles, mesocarp_data):
     angles = np.asarray(angles, float)
     radians = np.deg2rad(angles)
     directions = np.column_stack([np.cos(radians), np.sin(radians)])
     p_pos, r_pos, ok_pos = ray_exits(
-        center_xy, directions, wall_data["signed_distance"]
+        center_xy, directions, mesocarp_data["signed_distance"]
     )
     p_neg, r_neg, ok_neg = ray_exits(
-        center_xy, -directions, wall_data["signed_distance"]
+        center_xy, -directions, mesocarp_data["signed_distance"]
     )
     valid = ok_pos & ok_neg
     pos_inner = bilinear_many(
-        wall_data["distance_to_inner"], p_pos[:, 0], p_pos[:, 1], np.inf
+        mesocarp_data["distance_to_inner"], p_pos[:, 0], p_pos[:, 1], np.inf
     ) <= bilinear_many(
-        wall_data["distance_to_outer"], p_pos[:, 0], p_pos[:, 1], np.inf
+        mesocarp_data["distance_to_outer"], p_pos[:, 0], p_pos[:, 1], np.inf
     )
     neg_inner = bilinear_many(
-        wall_data["distance_to_inner"], p_neg[:, 0], p_neg[:, 1], np.inf
+        mesocarp_data["distance_to_inner"], p_neg[:, 0], p_neg[:, 1], np.inf
     ) <= bilinear_many(
-        wall_data["distance_to_outer"], p_neg[:, 0], p_neg[:, 1], np.inf
+        mesocarp_data["distance_to_outer"], p_neg[:, 0], p_neg[:, 1], np.inf
     )
     valid &= pos_inner != neg_inner
     output = []
@@ -326,9 +326,9 @@ def sections_for_angles(center_xy, angles, wall_data):
     return output
 
 
-def measure_skeleton_point(center_xy, wall_data):
+def measure_skeleton_point(center_xy, mesocarp_data):
     coarse = sections_for_angles(
-        center_xy, np.arange(0.0, 180.0, 1.0), wall_data
+        center_xy, np.arange(0.0, 180.0, 1.0), mesocarp_data
     )
     if not coarse:
         return None
@@ -336,7 +336,7 @@ def measure_skeleton_point(center_xy, wall_data):
     fine_angles = np.arange(
         best["angle_deg"] - 1.0, best["angle_deg"] + 1.0001, 0.1
     )
-    refined = sections_for_angles(center_xy, fine_angles, wall_data)
+    refined = sections_for_angles(center_xy, fine_angles, mesocarp_data)
     return min(refined or [best], key=lambda item: item["length_px"])
 
 
@@ -418,7 +418,7 @@ def ordered_skeleton_paths(skeleton):
 
 
 def sample_skeleton_at_spacing(
-    skeleton, ratio, spacing_mm=THICKNESS_SAMPLE_SPACING_MM
+    skeleton, ratio, spacing_mm=MESOCARP_THICKNESS_SAMPLE_SPACING_MM
 ):
     """Interpolate samples by path length and preserve open-path endpoints."""
     if ratio <= 0 or spacing_mm <= 0:
@@ -491,15 +491,15 @@ def sample_skeleton_at_spacing(
     return pd.DataFrame(rows)
 
 
-def measure_new_thickness(wall_data, ratio):
+def measure_mesocarp_thickness(mesocarp_data, ratio):
     samples = sample_skeleton_at_spacing(
-        wall_data["measurement_skeleton"], ratio
+        mesocarp_data["measurement_skeleton"], ratio
     )
     rows = []
     for _, sample in samples.iterrows():
         row = sample.to_dict()
         result = measure_skeleton_point(
-            (sample.skeleton_x, sample.skeleton_y), wall_data
+            (sample.skeleton_x, sample.skeleton_y), mesocarp_data
         )
         if result is None:
             row["measurement_status"] = "ray_failed"
@@ -537,24 +537,28 @@ def skeleton_branch_distance(skeleton):
 
 def filter_clean_thickness_points(
     points,
-    wall_data,
+    mesocarp_data,
     ratio,
     k=8,
     thickness_mad_multiplier=3.0,
     angle_mad_multiplier=2.0,
-    stem_margin_mm=1.5,
+    pedicel_margin_mm=1.5,
     branch_margin_mm=2.5,
 ):
     if len(points) < 3:
         return points.copy().reset_index(drop=True)
 
-    stem_distance = ndi.distance_transform_edt(~wall_data["stem_exclusion"])
-    near_stem = bilinear_many(
-        stem_distance,
+    pedicel_distance = ndi.distance_transform_edt(
+        ~mesocarp_data["pedicel_exclusion"]
+    )
+    near_pedicel = bilinear_many(
+        pedicel_distance,
         points.skeleton_x.to_numpy(),
         points.skeleton_y.to_numpy(),
-    ) < (stem_margin_mm / ratio)
-    branch_distance = skeleton_branch_distance(wall_data["measurement_skeleton"])
+    ) < (pedicel_margin_mm / ratio)
+    branch_distance = skeleton_branch_distance(
+        mesocarp_data["measurement_skeleton"]
+    )
     if np.isinf(branch_distance).all():
         near_branch = np.zeros(len(points), dtype=bool)
     else:
@@ -611,33 +615,33 @@ def filter_clean_thickness_points(
         local_angle_median + angle_mad_multiplier * local_angle_mad
     )
     return points[
-        (~near_stem) & (~near_branch) & (~thickness_outlier) & (~angle_outlier)
+        (~near_pedicel) & (~near_branch) & (~thickness_outlier) & (~angle_outlier)
     ].reset_index(drop=True)
 
 
-def calculate_thickness_stats(wall_data, ratio):
-    """Return min/average/max thickness from the accepted 1 mm samples."""
-    measured = measure_new_thickness(wall_data, ratio)
+def calculate_mesocarp_thickness_stats(mesocarp_data, ratio):
+    """Return min/average/max mesocarp thickness from accepted 1 mm samples."""
+    measured = measure_mesocarp_thickness(mesocarp_data, ratio)
     if measured.empty or "measurement_status" not in measured:
         return {
-            "min_thickness": None,
-            "avg_thickness": None,
-            "max_thickness": None,
+            "min_mesocarp_thickness": None,
+            "avg_mesocarp_thickness": None,
+            "max_mesocarp_thickness": None,
         }
     valid = measured[measured.measurement_status == "measured"].reset_index(drop=True)
     if valid.empty:
         return {
-            "min_thickness": None,
-            "avg_thickness": None,
-            "max_thickness": None,
+            "min_mesocarp_thickness": None,
+            "avg_mesocarp_thickness": None,
+            "max_mesocarp_thickness": None,
         }
-    clean = filter_clean_thickness_points(valid, wall_data, ratio)
+    clean = filter_clean_thickness_points(valid, mesocarp_data, ratio)
     minimum_clean_count = max(20, int(0.30 * len(valid)))
     used = clean if len(clean) >= minimum_clean_count else valid
     return {
-        "min_thickness": round(float(used.thickness_mm.min()), 2),
-        "avg_thickness": round(float(used.thickness_mm.mean()), 2),
-        "max_thickness": round(float(used.thickness_mm.max()), 2),
+        "min_mesocarp_thickness": round(float(used.thickness_mm.min()), 2),
+        "avg_mesocarp_thickness": round(float(used.thickness_mm.mean()), 2),
+        "max_mesocarp_thickness": round(float(used.thickness_mm.max()), 2),
     }
 
 
@@ -677,9 +681,9 @@ def split_true_runs(points, selected, closed):
     return runs
 
 
-def extract_outer_edge_runs(wall_data, minimum_arc_px=5.0):
+def extract_outer_mesocarp_edge_runs(mesocarp_data, minimum_arc_px=5.0):
     contours, _ = cv2.findContours(
-        wall_data["wall"].astype(np.uint8) * 255,
+        mesocarp_data["mesocarp"].astype(np.uint8) * 255,
         cv2.RETR_LIST,
         cv2.CHAIN_APPROX_NONE,
     )
@@ -688,20 +692,26 @@ def extract_outer_edge_runs(wall_data, minimum_arc_px=5.0):
         points = contour[:, 0, :].astype(float)
         if len(points) < 3:
             continue
-        labels, outside_stem_flags = [], []
+        labels, outside_pedicel_flags = [], []
         for x, y in points:
             distance_inner = bilinear(
-                wall_data["distance_to_inner"], x, y, np.inf
+                mesocarp_data["distance_to_inner"], x, y, np.inf
             )
             distance_outer = bilinear(
-                wall_data["distance_to_outer"], x, y, np.inf
+                mesocarp_data["distance_to_outer"], x, y, np.inf
             )
-            yi = int(np.clip(round(y), 0, wall_data["wall"].shape[0] - 1))
-            xi = int(np.clip(round(x), 0, wall_data["wall"].shape[1] - 1))
+            yi = int(
+                np.clip(round(y), 0, mesocarp_data["mesocarp"].shape[0] - 1)
+            )
+            xi = int(
+                np.clip(round(x), 0, mesocarp_data["mesocarp"].shape[1] - 1)
+            )
             labels.append(distance_outer < distance_inner)
-            outside_stem_flags.append(not wall_data["stem_exclusion"][yi, xi])
+            outside_pedicel_flags.append(
+                not mesocarp_data["pedicel_exclusion"][yi, xi]
+            )
         selected = smooth_circular_labels(labels, window=7)
-        selected &= np.asarray(outside_stem_flags, dtype=bool)
+        selected &= np.asarray(outside_pedicel_flags, dtype=bool)
         for run in split_true_runs(points, selected, closed=True):
             arc = np.linalg.norm(np.diff(run, axis=0), axis=1).sum()
             if arc >= minimum_arc_px:
@@ -854,15 +864,19 @@ def segment_polyline_by_exact_chord(points, chord_px):
     return points, cumulative, segments
 
 
-def calculate_wrinkle(
-    wall_data, ratio, wrinkle_threshold_mm=WRINKLE_SEGMENT_THRESHOLD_MM
+def calculate_mesocarp_wrinkle_index(
+    mesocarp_data,
+    ratio,
+    mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
 ):
-    """Return mean outer-wall curvature excess, excluding the stem."""
-    if ratio <= 0 or wrinkle_threshold_mm <= 0:
-        raise ValueError("ratio and wrinkle_threshold_mm must be greater than zero")
-    chord_px = wrinkle_threshold_mm / ratio
+    """Return mean outer-mesocarp curvature excess, excluding the pedicel."""
+    if ratio <= 0 or mesocarp_wrinkle_segment_threshold_mm <= 0:
+        raise ValueError(
+            "ratio and mesocarp_wrinkle_segment_threshold_mm must be greater than zero"
+        )
+    chord_px = mesocarp_wrinkle_segment_threshold_mm / ratio
     excesses = []
-    for run in extract_outer_edge_runs(wall_data):
+    for run in extract_outer_mesocarp_edge_runs(mesocarp_data):
         _, _, segments = segment_polyline_by_exact_chord(run, chord_px)
         excesses.extend(segment["curvature_excess"] for segment in segments)
     if not excesses:

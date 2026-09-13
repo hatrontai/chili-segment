@@ -47,10 +47,10 @@ def parse_args():
         help="Offset added to the dominant red-channel value in threshold mode",
     )
     parser.add_argument(
-        "--wrinkle-segment-threshold-mm",
+        "--mesocarp-wrinkle-segment-threshold-mm",
         default=5.0,
         type=positive_float,
-        help="Outer-wall chord threshold in mm used by the wrinkle feature",
+        help="Outer-mesocarp chord threshold in mm used by the wrinkle feature",
     )
     parser.add_argument("--save_csv", action="store_true", help="save output result")
     parser.add_argument("--save_img", action="store_true", help="save image output")
@@ -95,7 +95,9 @@ def inference(args):
             model_segment=model_segment,
             chili_method=args.chili_method,
             chili_threshold=args.chili_threshold,
-            wrinkle_segment_threshold_mm=args.wrinkle_segment_threshold_mm,
+            mesocarp_wrinkle_segment_threshold_mm=(
+                args.mesocarp_wrinkle_segment_threshold_mm
+            ),
         )
 
         for chili in chilis.items:
@@ -110,10 +112,13 @@ def inference(args):
                 'max_width': chili.width_fruit_stats['max'],
                 'rednees': chili.redness,
                 'area': chili.area_fruit,
-                'min_thickness': chili.thickness_stats['min_thickness'],
-                'average_thickness': chili.thickness_stats['avg_thickness'],
-                'max_thickness': chili.thickness_stats['max_thickness'],
-                'wrinkle': chili.wrinkle,
+                'mesocarp_area': chili.mesocarp_area,
+                'placenta_area': chili.placenta_area,
+                'flesh_placenta_ratio': chili.flesh_placenta_ratio,
+                'min_mesocarp_thickness': chili.mesocarp_thickness_stats['min_mesocarp_thickness'],
+                'average_mesocarp_thickness': chili.mesocarp_thickness_stats['avg_mesocarp_thickness'],
+                'max_mesocarp_thickness': chili.mesocarp_thickness_stats['max_mesocarp_thickness'],
+                'mesocarp_wrinkle_index': chili.mesocarp_wrinkle_index,
                 'scale_ratio': chili.ratio,
                 'scale_source': chili.scale_source,
             }

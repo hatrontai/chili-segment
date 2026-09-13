@@ -15,13 +15,13 @@ from scipy import ndimage as ndi
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed as sk_watershed
 from src.geometric_features import (
-    WRINKLE_SEGMENT_THRESHOLD_MM,
-    build_wall_data,
-    calculate_thickness_stats,
-    calculate_wrinkle,
+    MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
+    build_mesocarp_data,
+    calculate_mesocarp_thickness_stats,
+    calculate_mesocarp_wrinkle_index,
 )
 
-CLASS_NAMES = {0: "seed", 1: "outer", 2: "placenta", 3: "endocarp", 4: "chili"}
+CLASS_NAMES = {0: "seed", 1: "outer", 2: "PCP", 3: "endocarp", 4: "chili"}
 CLASS_COLORS = {
     0: (125, 0, 25),
     1: (0, 155, 0),
@@ -30,10 +30,10 @@ CLASS_COLORS = {
     4: (155, 0, 155),
 }
 
-MAX_STEM_RATIO = 0.35
-MIN_STEM_RATIO = 0.02
+MAX_PEDICEL_RATIO = 0.35
+MIN_PEDICEL_RATIO = 0.02
 
-PLACENTA_MIN_COMPONENT_AREA = 30
+PCP_MIN_COMPONENT_AREA = 30
 
 CORNER_TOP_REGION_FRAC = 0.55
 CORNER_ANGLE_WINDOW = 12
@@ -44,7 +44,7 @@ CORNER_MIN_X_SEP_FRAC = 0.10
 CORNER_MIN_RUN_LEN = 1
 
 CLOSE_LINE_THICKNESS = 3
-MIN_FLESH_COMPONENT_AREA = 30
+MIN_MESOCARP_COMPONENT_AREA = 30
 
 INNER_REF_DILATE_PX_START = 6
 INNER_REF_DILATE_PX_MAX = 30
@@ -137,9 +137,9 @@ def draw_full_mask_with_labels(image, objects, alpha=0.5):
     return output
 
 
-def get_placenta_contour(mask_placenta, min_area=PLACENTA_MIN_COMPONENT_AREA):
+def get_pcp_contour(mask_pcp, min_area=PCP_MIN_COMPONENT_AREA):
     contours, _ = cv2.findContours(
-        mask_placenta, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+        mask_pcp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
     )
     if not contours:
         return None
@@ -150,17 +150,19 @@ def get_placenta_contour(mask_placenta, min_area=PLACENTA_MIN_COMPONENT_AREA):
     return c.reshape(-1, 2)
 
 
-def build_stem_mask_from_corners(mask_shape, left_chain, i_left, right_chain, i_right):
+def build_pedicel_mask_from_corners(
+    mask_shape, left_chain, i_left, right_chain, i_right
+):
     left_part = left_chain[0 : i_left + 1]
     right_part = right_chain[0 : i_right + 1][::-1]
     polygon = np.concatenate([left_part, right_part], axis=0).astype(np.int32)
-    mask_stem = np.zeros(mask_shape, dtype=np.uint8)
-    cv2.fillPoly(mask_stem, [polygon.reshape(-1, 1, 2)], 255)
-    return mask_stem, polygon
+    mask_pedicel = np.zeros(mask_shape, dtype=np.uint8)
+    cv2.fillPoly(mask_pedicel, [polygon.reshape(-1, 1, 2)], 255)
+    return mask_pedicel, polygon
 
 
-def get_apex_point(mask_placenta):
-    ys_p, xs_p = np.where(mask_placenta > 0)
+def get_apex_point(mask_pcp):
+    ys_p, xs_p = np.where(mask_pcp > 0)
     apex_idx = int(np.argmin(ys_p))
     return (int(xs_p[apex_idx]), int(ys_p[apex_idx]))
 
@@ -305,8 +307,8 @@ def find_armpit_points(
     )
 
 
-def run_case1_armpit(chili, placenta_total_px):
-    contour_p = get_placenta_contour(chili.mask_placenta)
+def run_case1_armpit(chili, pcp_total_px):
+    contour_p = get_pcp_contour(chili.mask_pcp)
     if contour_p is None or len(contour_p) < 20:
         return None, None, None, None, contour_p, [], False, "CASE1_NO_CONTOUR"
     pt_l, pt_r, i_left, i_right, left_chain, right_chain, debug_candidates, diag = (
@@ -323,26 +325,35 @@ def run_case1_armpit(chili, placenta_total_px):
             False,
             "CASE1_FAILED",
         )
-    s_mask, polygon = build_stem_mask_from_corners(
-        chili.mask_placenta.shape, left_chain, i_left, right_chain, i_right
+    pedicel_mask, polygon = build_pedicel_mask_from_corners(
+        chili.mask_pcp.shape, left_chain, i_left, right_chain, i_right
     )
-    s_mask = cv2.bitwise_and(s_mask, chili.mask_placenta)
-    p_true = cv2.subtract(chili.mask_placenta, s_mask)
-    s_px = int((s_mask > 0).sum())
-    if s_px >= MIN_STEM_RATIO * placenta_total_px:
-        return s_mask, p_true, pt_l, pt_r, contour_p, debug_candidates, True, "CASE1_OK"
+    pedicel_mask = cv2.bitwise_and(pedicel_mask, chili.mask_pcp)
+    placenta_mask = cv2.subtract(chili.mask_pcp, pedicel_mask)
+    pedicel_px = int((pedicel_mask > 0).sum())
+    if pedicel_px >= MIN_PEDICEL_RATIO * pcp_total_px:
+        return (
+            pedicel_mask,
+            placenta_mask,
+            pt_l,
+            pt_r,
+            contour_p,
+            debug_candidates,
+            True,
+            "CASE1_OK",
+        )
     return None, None, None, None, contour_p, debug_candidates, False, "CASE1_TOO_SMALL"
 
 
-def compute_mask_flesh_raw(chili):
+def compute_mesocarp_mask_raw(chili):
     mask = cv2.subtract(chili.mask_chili, chili.mask_endocarp)
     mask = cv2.subtract(mask, chili.mask_outer)
-    mask = cv2.subtract(mask, chili.mask_placenta)
+    mask = cv2.subtract(mask, chili.mask_pcp)
     mask = cv2.subtract(mask, chili.mask_seed)
     return mask
 
 
-def get_largest_component(mask, min_area=MIN_FLESH_COMPONENT_AREA):
+def get_largest_component(mask, min_area=MIN_MESOCARP_COMPONENT_AREA):
     binary = (mask > 0).astype(np.uint8)
     num, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
     if num <= 1:
@@ -354,9 +365,9 @@ def get_largest_component(mask, min_area=MIN_FLESH_COMPONENT_AREA):
     return (labels == largest_label).astype(np.uint8) * 255
 
 
-def get_outer_contour(mask_flesh_main):
+def get_outer_contour(mask_mesocarp_main):
     contours, _ = cv2.findContours(
-        mask_flesh_main, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
+        mask_mesocarp_main, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE
     )
     if not contours:
         return None
@@ -364,11 +375,11 @@ def get_outer_contour(mask_flesh_main):
     return contour
 
 
-def classify_contour_inner_outer(contour, mask_placenta, dilate_px):
+def classify_contour_inner_outer(contour, mask_pcp, dilate_px):
     kernel = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE, (2 * dilate_px + 1, 2 * dilate_px + 1)
     )
-    inner_ref = cv2.dilate(mask_placenta, kernel)
+    inner_ref = cv2.dilate(mask_pcp, kernel)
     xs, ys = contour[:, 0], contour[:, 1]
     return inner_ref[ys, xs] > 0
 
@@ -388,10 +399,10 @@ def find_all_true_runs_circular(is_inner, min_run_len=1):
     return runs
 
 
-def get_placenta_top_center(mask_placenta, flesh_center_x):
-    ys, xs = np.where(mask_placenta > 0)
+def get_pcp_top_center(mask_pcp, mesocarp_center_x):
+    ys, xs = np.where(mask_pcp > 0)
     if len(ys) == 0:
-        return np.array([flesh_center_x, 0])
+        return np.array([mesocarp_center_x, 0])
     min_y = ys.min()
     top_xs = xs[ys <= min_y + 20]
     return np.array([top_xs.mean() if len(top_xs) > 0 else xs.mean(), min_y])
@@ -427,16 +438,16 @@ def refine_tip_from_run(contour, run, ptc, curvature_window=TIP_CURVATURE_WINDOW
 
 
 def _pick_top_two_tip_points(
-    is_inner, contour, mask_flesh_main, mask_placenta, min_run_len
+    is_inner, contour, mask_mesocarp_main, mask_pcp, min_run_len
 ):
-    ys, xs = np.where(mask_flesh_main > 0)
+    ys, xs = np.where(mask_mesocarp_main > 0)
     if len(ys) == 0:
-        return None, None, {"reason": "empty_flesh_mask"}
+        return None, None, {"reason": "empty_mesocarp_mask"}
     min_y, max_y = ys.min(), ys.max()
     height = max_y - min_y
-    flesh_width = max(xs.max() - xs.min(), 1)
+    mesocarp_width = max(xs.max() - xs.min(), 1)
     y_threshold = min_y + height * 0.35
-    ptc = get_placenta_top_center(mask_placenta, xs.mean())
+    ptc = get_pcp_top_center(mask_pcp, xs.mean())
     runs = find_all_true_runs_circular(is_inner, min_run_len=min_run_len)
     valid_runs = []
     for run in runs:
@@ -452,27 +463,27 @@ def _pick_top_two_tip_points(
     max_y_dist = height * 0.15
     for item in valid_runs[1:]:
         x_sep = abs(item["x"] - point_a[0])
-        if x_sep >= MIN_TIP_X_SEPARATION_FRAC * flesh_width:
+        if x_sep >= MIN_TIP_X_SEPARATION_FRAC * mesocarp_width:
             if abs(item["y"] - point_a[1]) <= max_y_dist:
                 point_b = item["pt"]
                 break
     return point_a, point_b, diag
 
 
-def find_arm_tip_points(mask_flesh_main, mask_placenta):
-    contour = get_outer_contour(mask_flesh_main)
+def find_arm_tip_points(mask_mesocarp_main, mask_pcp):
+    contour = get_outer_contour(mask_mesocarp_main)
     if contour is None or len(contour) < 10:
         return None, None, None, None, -1, {"reason": "no_contour_or_too_short"}
     perimeter = len(contour)
     dilate_px = INNER_REF_DILATE_PX_START
     last_diag = {}
     while True:
-        is_inner = classify_contour_inner_outer(contour, mask_placenta, dilate_px)
+        is_inner = classify_contour_inner_outer(contour, mask_pcp, dilate_px)
         min_run_len = max(4, int(MIN_INNER_RUN_LEN_FRAC_START * perimeter))
         min_run_len_floor = max(4, int(MIN_INNER_RUN_LEN_FRAC_FLOOR * perimeter))
         for _ in range(RUN_LEN_MAX_ATTEMPTS):
             point_a, point_b, diag = _pick_top_two_tip_points(
-                is_inner, contour, mask_flesh_main, mask_placenta, min_run_len
+                is_inner, contour, mask_mesocarp_main, mask_pcp, min_run_len
             )
             last_diag = diag
             if point_a and point_b:
@@ -488,37 +499,39 @@ def find_arm_tip_points(mask_flesh_main, mask_placenta):
     return None, None, contour, None, -1, last_diag
 
 
-def build_closed_container(mask_flesh_main, point_a, point_b, line_thickness):
-    mask_closed = mask_flesh_main.copy()
+def build_closed_container(mask_mesocarp_main, point_a, point_b, line_thickness):
+    mask_closed = mask_mesocarp_main.copy()
     cv2.line(mask_closed, point_a, point_b, 255, thickness=line_thickness)
     return ndi.binary_fill_holes(mask_closed > 0).astype(np.uint8) * 255
 
 
-def run_geometry_box(flesh_mask, placenta_mask):
-    p_a, p_b, cnt, is_in, d_used, diag = find_arm_tip_points(flesh_mask, placenta_mask)
+def run_geometry_box(mesocarp_mask, pcp_mask):
+    p_a, p_b, cnt, is_in, d_used, diag = find_arm_tip_points(
+        mesocarp_mask, pcp_mask
+    )
     if p_a and p_b:
         if p_a[0] > p_b[0]:
             p_a, p_b = p_b, p_a
         filled_container = build_closed_container(
-            flesh_mask, p_a, p_b, CLOSE_LINE_THICKNESS
+            mesocarp_mask, p_a, p_b, CLOSE_LINE_THICKNESS
         )
-        p_true = cv2.bitwise_and(placenta_mask, filled_container)
-        s_mask = cv2.subtract(placenta_mask, p_true)
-        return s_mask, p_true, p_a, p_b, cnt, is_in, d_used, diag
+        placenta_mask = cv2.bitwise_and(pcp_mask, filled_container)
+        pedicel_mask = cv2.subtract(pcp_mask, placenta_mask)
+        return pedicel_mask, placenta_mask, p_a, p_b, cnt, is_in, d_used, diag
     return None, None, None, None, None, None, -1, diag
 
 
-def run_case2_geo_original(chili, placenta_total_px):
-    mask_flesh_raw = compute_mask_flesh_raw(chili)
-    mask_flesh_main = get_largest_component(mask_flesh_raw)
-    if mask_flesh_main.sum() == 0:
-        return None, None, None, None, None, None, False, "CASE2_FAILED_NO_FLESH"
-    s_mask, p_true, p_a, p_b, cnt, is_in, d_used, diag = run_geometry_box(
-        mask_flesh_main, chili.mask_placenta
+def run_case2_geo_original(chili, pcp_total_px):
+    mask_mesocarp_raw = compute_mesocarp_mask_raw(chili)
+    mask_mesocarp_main = get_largest_component(mask_mesocarp_raw)
+    if mask_mesocarp_main.sum() == 0:
+        return None, None, None, None, None, None, False, "CASE2_FAILED_NO_MESOCARP"
+    pedicel_mask, placenta_mask, p_a, p_b, cnt, is_in, d_used, diag = run_geometry_box(
+        mask_mesocarp_main, chili.mask_pcp
     )
-    if s_mask is None:
+    if pedicel_mask is None:
         return None, None, None, None, None, None, False, "CASE2_FAILED_NO_TIPS"
-    return s_mask, p_true, p_a, p_b, cnt, is_in, True, "CASE2_OK"
+    return pedicel_mask, placenta_mask, p_a, p_b, cnt, is_in, True, "CASE2_OK"
 
 
 class Fruits(object):
@@ -529,16 +542,20 @@ class Fruits(object):
         model_segment,
         chili_method=None,
         chili_threshold=None,
-        wrinkle_segment_threshold_mm=WRINKLE_SEGMENT_THRESHOLD_MM,
+        mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
     ):
         self.path = path
         self.model_segment = model_segment
         self.model_detect = model_detect
         self.chili_method = chili_method
         self.chili_threshold = chili_threshold
-        if wrinkle_segment_threshold_mm <= 0:
-            raise ValueError("wrinkle_segment_threshold_mm must be greater than zero")
-        self.wrinkle_segment_threshold_mm = float(wrinkle_segment_threshold_mm)
+        if mesocarp_wrinkle_segment_threshold_mm <= 0:
+            raise ValueError(
+                "mesocarp_wrinkle_segment_threshold_mm must be greater than zero"
+            )
+        self.mesocarp_wrinkle_segment_threshold_mm = float(
+            mesocarp_wrinkle_segment_threshold_mm
+        )
 
         qr_result = self.qr_code()
         if qr_result is not None:
@@ -574,7 +591,9 @@ class Fruits(object):
             chili_method=self.chili_method,
             chili_threshold=self.chili_threshold,
             scale_source=self.scale_source,
-            wrinkle_segment_threshold_mm=self.wrinkle_segment_threshold_mm,
+            mesocarp_wrinkle_segment_threshold_mm=(
+                self.mesocarp_wrinkle_segment_threshold_mm
+            ),
         )
         print(index, self.box_cut[index])
         return chili
@@ -648,7 +667,7 @@ class Chili(Fruits):
         chili_method=None,
         chili_threshold=None,
         scale_source="provided",
-        wrinkle_segment_threshold_mm=WRINKLE_SEGMENT_THRESHOLD_MM,
+        mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
     ):
         self.path = path
         self.bbox = bbox
@@ -656,10 +675,14 @@ class Chili(Fruits):
         self.id = index
         self.ratio = ratio
         self.scale_source = scale_source
-        if wrinkle_segment_threshold_mm <= 0:
-            raise ValueError("wrinkle_segment_threshold_mm must be greater than zero")
-        self.wrinkle_segment_threshold_mm = float(wrinkle_segment_threshold_mm)
-        self._wall_feature_data = None
+        if mesocarp_wrinkle_segment_threshold_mm <= 0:
+            raise ValueError(
+                "mesocarp_wrinkle_segment_threshold_mm must be greater than zero"
+            )
+        self.mesocarp_wrinkle_segment_threshold_mm = float(
+            mesocarp_wrinkle_segment_threshold_mm
+        )
+        self._mesocarp_feature_data = None
         self.name = self.get_name()
         self.position, self.img = self.get_img(self.bbox)
 
@@ -677,11 +700,11 @@ class Chili(Fruits):
         # SegmentModel's filled/smoothed polygon representation for this class.
         self.mask_endocarp = self._get_raw_yolo_class_mask(3)
         self.mask_endocarp_source = "raw_yolo"
-        self.mask_placenta = self._get_class_mask(2)
+        self.mask_pcp = self._get_class_mask(2)
         self.mask_outer = self._get_class_mask(1)
         self.mask_seed = self._get_class_mask(0)
 
-        combined = cv2.bitwise_or(self.mask_endocarp, self.mask_placenta)
+        combined = cv2.bitwise_or(self.mask_endocarp, self.mask_pcp)
         combined = cv2.bitwise_or(combined, self.mask_outer)
         combined = cv2.bitwise_or(combined, self.mask_seed)
         self.mask_chili = cv2.bitwise_or(self.mask_chili, combined)
@@ -730,8 +753,9 @@ class Chili(Fruits):
 
         self.mask = self.mask_chili
 
-        # STEM SEPARATION
-        self.mask_stem, self.mask_true_placenta = self._compute_stem_and_true_placenta()
+        # Separate the entire green pedicel from the PCP class.
+        self.mask_pedicel, self.mask_placenta = self._separate_pedicel_and_placenta()
+        self.mask_mesocarp = compute_mesocarp_mask_raw(self)
 
 
         self.spine = self._calculate_spine()
@@ -748,15 +772,15 @@ class Chili(Fruits):
         # fruit mask, scaled by the QR-derived ratio.
         self.area_fruit = self.get_area()
 
-        self.endocarp_area = self.get_endocarp_area()
+        self.mesocarp_area = self.get_mesocarp_area()
         self.fruit_body_area = self.get_fruit_body_area()
         self.placenta_area = self.get_placenta_area()
-        self.thickness_stats = self.get_thickness()
+        self.mesocarp_thickness_stats = self.get_mesocarp_thickness()
 
         red_metrics = self.get_redness_metrics()
         self.redness = red_metrics.get("redness_chroma", 0)
         self.color_uniformity = red_metrics.get("color_uniformity", 0)
-        self.wrinkle = self.get_wrinkle()
+        self.mesocarp_wrinkle_index = self.get_mesocarp_wrinkle_index()
 
         self.flesh_placenta_ratio = self.get_flesh_placenta_ratio()
         self.seed_stats = self.get_seed_stats()
@@ -767,24 +791,31 @@ class Chili(Fruits):
         self.seed_density = self.get_seed_density()
         self.asymmetry_index = self.get_asymmetry_index()
 
-    def _compute_stem_and_true_placenta(self):
-        mask_placenta = self.mask_placenta
-        if mask_placenta.sum() == 0:
-            return np.zeros_like(mask_placenta), mask_placenta.copy()
-        placenta_total_px = int((mask_placenta > 0).sum())
-        mask_stem = np.zeros_like(mask_placenta)
-        mask_placenta_true = mask_placenta.copy()
-        s_mask1, p_true1, pa1, pb1, contour_p, debug_candidates, case1_ok, log1 = (
-            run_case1_armpit(self, placenta_total_px)
-        )
+    def _separate_pedicel_and_placenta(self):
+        mask_pcp = self.mask_pcp
+        if mask_pcp.sum() == 0:
+            return np.zeros_like(mask_pcp), mask_pcp.copy()
+        pcp_total_px = int((mask_pcp > 0).sum())
+        mask_pedicel = np.zeros_like(mask_pcp)
+        mask_placenta = mask_pcp.copy()
+        (
+            pedicel_mask1,
+            placenta_mask1,
+            pa1,
+            pb1,
+            contour_p,
+            debug_candidates,
+            case1_ok,
+            log1,
+        ) = run_case1_armpit(self, pcp_total_px)
         if case1_ok:
-            return s_mask1, p_true1
-        s_mask2, p_true2, pa2, pb2, cnt2, is_in2, case2_ok, log2 = (
-            run_case2_geo_original(self, placenta_total_px)
+            return pedicel_mask1, placenta_mask1
+        pedicel_mask2, placenta_mask2, pa2, pb2, cnt2, is_in2, case2_ok, log2 = (
+            run_case2_geo_original(self, pcp_total_px)
         )
         if case2_ok:
-            return s_mask2, p_true2
-        return mask_stem, mask_placenta_true
+            return pedicel_mask2, placenta_mask2
+        return mask_pedicel, mask_placenta
 
     def get_img(self, bbox):
         img = cv2.imread(self.path)
@@ -1001,39 +1032,50 @@ class Chili(Fruits):
         length_fruit = round(length_fruit * ratio, 2)
         return width_fruit, length_fruit
 
-    def get_endocarp_area(self):
-        mask_flesh = cv2.subtract(self.mask_chili, self.mask_endocarp)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_outer)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_stem)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_true_placenta)
-        mask_flesh = cv2.subtract(mask_flesh, self.mask_seed)
-        return round((mask_flesh / 255).sum() * (self.ratio**2), 2)
+    def get_mesocarp_area(self):
+        return round((self.mask_mesocarp / 255).sum() * (self.ratio**2), 2)
 
-    def get_thickness(self):
-        return calculate_thickness_stats(self._get_wall_feature_data(), self.ratio)
+    def get_mesocarp_thickness(self):
+        return calculate_mesocarp_thickness_stats(
+            self._get_mesocarp_feature_data(), self.ratio
+        )
 
-    def _get_wall_feature_data(self):
-        """Build wall geometry once and share it between thickness and wrinkle."""
-        if self._wall_feature_data is None:
-            self._wall_feature_data = build_wall_data(self, self.ratio)
-        return self._wall_feature_data
+    def _get_mesocarp_feature_data(self):
+        """Build mesocarp geometry once for thickness and wrinkle extraction."""
+        if self._mesocarp_feature_data is None:
+            self._mesocarp_feature_data = build_mesocarp_data(self, self.ratio)
+        return self._mesocarp_feature_data
 
     def get_fruit_body_area(self):
         mask = cv2.subtract(self.mask_chili, self.mask_outer)
-        mask = cv2.subtract(mask, self.mask_stem)
+        mask = cv2.subtract(mask, self.mask_pedicel)
         return round((mask / 255).sum() * (self.ratio**2), 2)
 
+    def _get_clean_placenta_mask(self):
+        mask = cv2.subtract(self.mask_placenta, self.mask_outer)
+        return cv2.subtract(mask, self.mask_seed)
+
+    def _get_flesh_mask(self):
+        """Build the flesh mask without excluding the endocarp region."""
+        mask = cv2.subtract(self.mask_chili, self.mask_outer)
+        mask = cv2.subtract(mask, self.mask_pcp)
+        return cv2.subtract(mask, self.mask_seed)
+
     def get_placenta_area(self):
-        mask = cv2.subtract(self.mask_true_placenta, self.mask_outer)
-        mask = cv2.subtract(mask, self.mask_seed)
+        mask = self._get_clean_placenta_mask()
         return round((mask / 255).sum() * (self.ratio**2), 2)
 
     def get_flesh_placenta_ratio(self):
-        flesh_area = self.get_endocarp_area()
-        placenta_area = self.get_placenta_area()
-        if placenta_area == 0:
+        """Return A_flesh/A_placenta when at least 10 placenta pixels exist."""
+        placenta_mask = self._get_clean_placenta_mask()
+        placenta_pixels = int(np.count_nonzero(placenta_mask))
+        if placenta_pixels < 10:
             return None
-        return round(flesh_area / placenta_area, 2)
+
+        # Endocarp belongs to the flesh region for this feature and is not
+        # removed from the numerator.
+        flesh_pixels = int(np.count_nonzero(self._get_flesh_mask()))
+        return round(flesh_pixels / placenta_pixels, 2)
 
     MIN_SEED_PEAK_DISTANCE_PX = 5
 
@@ -1149,7 +1191,7 @@ class Chili(Fruits):
     def get_seed_density(self):
         seed_px = (self.mask_seed > 0).sum()
         cavity_mask = cv2.bitwise_or(self.mask_endocarp, self.mask_seed)
-        cavity_mask = cv2.bitwise_or(cavity_mask, self.mask_true_placenta)
+        cavity_mask = cv2.bitwise_or(cavity_mask, self.mask_placenta)
         cavity_px = (cavity_mask > 0).sum()
         if cavity_px == 0:
             return 0
@@ -1201,14 +1243,18 @@ class Chili(Fruits):
         #Calculate complete fruit area using the original public name.
         return round((self.mask_chili > 0).sum() * (self.ratio ** 2), 2)
 
-    def get_wrinkle(self, wrinkle_segment_threshold_mm=None):
-        """Calculate mean curvature excess on the true outer wall edge."""
+    def get_mesocarp_wrinkle_index(
+        self, mesocarp_wrinkle_segment_threshold_mm=None
+    ):
+        """Calculate mean curvature excess on the outer mesocarp edge."""
         threshold = (
-            self.wrinkle_segment_threshold_mm
-            if wrinkle_segment_threshold_mm is None
-            else float(wrinkle_segment_threshold_mm)
+            self.mesocarp_wrinkle_segment_threshold_mm
+            if mesocarp_wrinkle_segment_threshold_mm is None
+            else float(mesocarp_wrinkle_segment_threshold_mm)
         )
-        return calculate_wrinkle(self._get_wall_feature_data(), self.ratio, threshold)
+        return calculate_mesocarp_wrinkle_index(
+            self._get_mesocarp_feature_data(), self.ratio, threshold
+        )
 
     def get_hist(self):
         #Preserve the original red-channel histogram visualization helper.
@@ -1243,7 +1289,7 @@ class Chili(Fruits):
 
     def get_redness_metrics(self):
         mask_remove = cv2.bitwise_or(self.mask_seed, self.mask_outer)
-        mask_remove = cv2.bitwise_or(mask_remove, self.mask_placenta)
+        mask_remove = cv2.bitwise_or(mask_remove, self.mask_pcp)
         mask_pure_red = cv2.subtract(self.mask_chili, mask_remove)
 
         lab = cv2.cvtColor(self.img, cv2.COLOR_RGB2LAB)
