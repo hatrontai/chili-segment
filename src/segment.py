@@ -63,6 +63,39 @@ class SegmentModel:
         cv2.drawContours(result, [fruit_contour], -1, 255, -1)
         return result, cutoff
 
+    @staticmethod
+    def _clean_largest_chili_mask(mask, close_kernel_size=10):
+        """Close a binary mask and keep only its largest external contour."""
+        binary_mask = (np.asarray(mask) > 0).astype(np.uint8) * 255
+        if not np.any(binary_mask):
+            return binary_mask
+
+        if close_kernel_size > 0:
+            kernel = np.ones(
+                (close_kernel_size, close_kernel_size), dtype=np.uint8
+            )
+            binary_mask = cv2.morphologyEx(
+                binary_mask, cv2.MORPH_CLOSE, kernel, iterations=1
+            )
+
+        contours, _ = cv2.findContours(
+            binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if not contours:
+            return np.zeros_like(binary_mask)
+
+        result = np.zeros_like(binary_mask)
+        largest_contour = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(largest_contour) > 0:
+            cv2.drawContours(result, [largest_contour], -1, 255, -1)
+        return result
+
+    @staticmethod
+    def _mask_bbox(mask):
+        """Return an xyxy bounding box for a non-empty binary mask."""
+        x, y, width, height = cv2.boundingRect((mask > 0).astype(np.uint8))
+        return np.array([x, y, x + width, y + height], dtype=np.float32)
+
     def predict(self, image, chili_method=None, chili_threshold=None):
         target_class = 3
         epsilon_factor = 0.002
@@ -105,15 +138,13 @@ class SegmentModel:
         processed_polygons = []
         masks_data = []
         detection_details = []
+        yolo_chili_candidates = []
         threshold_cutoff = None
 
         if masks is not None and len(masks) > 0:
             for i in range(len(masks)):
                 class_id = int(boxes.cls[i])
                 confidence = float(boxes.conf[i])
-
-                if selected_chili_method == 'threshold' and class_id == 4:
-                    continue
 
                 if class_id == 0 and confidence < self.SEED_CONF_THRESHOLD:
                     continue
@@ -126,6 +157,19 @@ class SegmentModel:
                                       interpolation=cv2.INTER_NEAREST)
 
                 mask = (mask * 255).astype(np.uint8)
+
+                if class_id == 4:
+                    yolo_chili_candidates.append({
+                        'class_id': class_id,
+                        'mask': mask,
+                        'confidence': confidence,
+                        'bbox': bbox,
+                        'source': 'yolo',
+                    })
+                    # YOLO's chili masks validate the detector candidate. The
+                    # authoritative class-4 mask is selected below so only one
+                    # fruit can survive in a padded crop.
+                    continue
 
                 masks_data.append({
                     'class_id': class_id,
@@ -147,35 +191,77 @@ class SegmentModel:
                     'source': 'yolo',
                 })
 
+        has_yolo_chili = any(
+            np.any(candidate['mask']) for candidate in yolo_chili_candidates
+        )
+        selected_chili_mask = np.zeros(
+            (img_height, img_width), dtype=np.uint8
+        )
+        selected_chili_confidence = 0.0
+        selected_chili_source = selected_chili_method
+
         if selected_chili_method == 'threshold':
             chili_mask, threshold_cutoff = self._threshold_chili_mask(
                 image, selected_chili_threshold,
             )
-            if np.any(chili_mask):
-                x, y, width, height = cv2.boundingRect(chili_mask)
-                bbox = np.array([x, y, x + width, y + height], dtype=np.float32)
-                confidence = 1.0
-                masks_data.append({
-                    'class_id': 4,
-                    'mask': chili_mask,
-                    'confidence': confidence,
-                    'bbox': bbox,
-                    'source': 'threshold',
-                })
-                detection_details.append({
-                    'detection_id': len(detection_details),
-                    'class_id': 4,
-                    'class_name': CLASS_NAMES[4],
-                    'confidence': confidence,
-                    'bbox': bbox.tolist(),
-                    'bbox_center': [
-                        float((bbox[0] + bbox[2]) / 2),
-                        float((bbox[1] + bbox[3]) / 2),
-                    ],
-                    'bbox_area': float(width * height),
-                    'mask_area': float(np.count_nonzero(chili_mask)),
-                    'source': 'threshold',
-                })
+            selected_chili_mask = chili_mask
+            selected_chili_confidence = 1.0
+        elif yolo_chili_candidates:
+            selected_candidate = max(
+                yolo_chili_candidates,
+                key=lambda candidate: np.count_nonzero(candidate['mask']),
+            )
+            selected_chili_mask = self._clean_largest_chili_mask(
+                selected_candidate['mask']
+            )
+            selected_chili_confidence = selected_candidate['confidence']
+
+        is_valid_chili = bool(
+            has_yolo_chili and np.any(selected_chili_mask)
+        )
+        if not has_yolo_chili:
+            rejection_reason = 'no_yolo_chili_mask'
+        elif not np.any(selected_chili_mask):
+            rejection_reason = 'empty_selected_chili_mask'
+        else:
+            rejection_reason = None
+
+        if is_valid_chili:
+            # Every subordinate class must belong to the selected fruit. This
+            # removes masks from neighbouring peppers captured by crop padding.
+            for mask_info in masks_data:
+                mask_info['mask'] = cv2.bitwise_and(
+                    mask_info['mask'], selected_chili_mask
+                )
+
+            bbox = self._mask_bbox(selected_chili_mask)
+            width = bbox[2] - bbox[0]
+            height = bbox[3] - bbox[1]
+            masks_data.append({
+                'class_id': 4,
+                'mask': selected_chili_mask,
+                'confidence': selected_chili_confidence,
+                'bbox': bbox,
+                'source': selected_chili_source,
+            })
+            detection_details.append({
+                'detection_id': len(detection_details),
+                'class_id': 4,
+                'class_name': CLASS_NAMES[4],
+                'confidence': selected_chili_confidence,
+                'bbox': bbox.tolist(),
+                'bbox_center': [
+                    float((bbox[0] + bbox[2]) / 2),
+                    float((bbox[1] + bbox[3]) / 2),
+                ],
+                'bbox_area': float(width * height),
+                'mask_area': float(np.count_nonzero(selected_chili_mask)),
+                'source': selected_chili_source,
+            })
+        else:
+            # Invalid candidates must not leak partial class masks into later
+            # measurement stages.
+            masks_data = []
 
         if masks_data:
             processed_polygons = self._process_yolo_masks(
@@ -203,6 +289,9 @@ class SegmentModel:
                 'chili_method': selected_chili_method,
                 'chili_threshold': selected_chili_threshold,
                 'chili_threshold_cutoff': threshold_cutoff,
+                'has_yolo_chili': has_yolo_chili,
+                'is_valid_chili': is_valid_chili,
+                'rejection_reason': rejection_reason,
             },
         }
 

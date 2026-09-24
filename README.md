@@ -134,6 +134,15 @@ The fallback detector is tuned for images that match the dataset layout used in 
 into polygons. Class ID `2` is the PCP class (Placenta + Pedicel), and
 class `3` is `endocarp`. The class IDs remain unchanged from model training.
 
+Every detector crop must also contain a non-empty YOLO class `chili` mask
+(class ID `4`) before it is exposed as a fruit. In threshold mode, that YOLO
+mask is used only to validate the candidate; the measurement mask is built by
+red-channel thresholding, morphological closing, and retaining the largest
+external contour. All subordinate masks are clipped to this main contour and
+pixels outside it are rendered black, so a neighbouring fruit captured by the
+50-pixel crop padding cannot affect measurements. Rejected candidates are not
+included in `Fruits.items`, Web results, or CLI CSV output.
+
 ### Feature Extraction
 
 `src/object.py` builds a `Fruits` object for each image and a `Chili` object for each detected fruit. It extracts:

@@ -60,12 +60,13 @@ TIP_CURVATURE_WINDOW = 6
 TIP_CURVATURE_WEIGHT = 1.0
 TIP_DIST_PENALTY_WEIGHT = 0.5
 
-CHILI_MIN_COMPONENT_AREA = 30
-CHILI_MIN_COMPONENT_RATIO = 0.002
-
 # Arithmetic mean of the QR ratios from the 22 bundled dataset images.  It is
 # an estimated scale only and is always accompanied by ``scale_source``.
 DEFAULT_DATASET_RATIO_MM_PER_PX = 0.094305839
+
+
+class InvalidChiliCandidate(ValueError):
+    """Raised when segmentation cannot confirm a detected chili candidate."""
 
 
 def find_centroid(matrix):
@@ -574,19 +575,29 @@ class Fruits(object):
         self.image = Image.open(path)
         self.width_img, self.height_img = self.image.size
 
-        # Get bounding boxes and sort them from left to right based on X coordinate (bbox[0])
-        self.box_cut = self.get_bbox_chili()
-        self.box_cut.sort(key=lambda box: box[0])
+        # Segment every detector candidate before exposing it as a fruit. A
+        # candidate without a YOLO chili mask is discarded completely.
+        candidate_boxes = sorted(self.get_bbox_chili(), key=lambda box: box[0])
+        self.box_cut = []
+        self.items = []
+        for bbox in candidate_boxes:
+            try:
+                chili = self.get_item(len(self.items), bbox=bbox)
+            except InvalidChiliCandidate:
+                continue
+            self.box_cut.append(bbox)
+            self.items.append(chili)
 
-        self.num_fruit = len(self.box_cut)
-        self.items = [self.get_item(i) for i in range(len(self.box_cut))]
+        self.num_fruit = len(self.items)
 
-    def get_item(self, index):
+    def get_item(self, index, bbox=None):
+        if bbox is None:
+            bbox = self.box_cut[index]
         chili = Chili(
             self.path,
             index,
             self.model_segment,
-            self.box_cut[index],
+            bbox,
             self.ratio,
             chili_method=self.chili_method,
             chili_threshold=self.chili_threshold,
@@ -595,7 +606,7 @@ class Fruits(object):
                 self.mesocarp_wrinkle_segment_threshold_mm
             ),
         )
-        print(index, self.box_cut[index])
+        print(index, bbox)
         return chili
 
     def show(self):
@@ -693,6 +704,11 @@ class Chili(Fruits):
             chili_method=chili_method,
             chili_threshold=chili_threshold,
         )
+        segment_stats = self.rseg.get("stats", {})
+        if not segment_stats.get("is_valid_chili", False):
+            reason = segment_stats.get("rejection_reason") or "invalid_chili_mask"
+            raise InvalidChiliCandidate(reason)
+
         self.polygons = self.get_polygons()
 
         self.mask_chili = self._get_class_mask(4)
@@ -704,52 +720,17 @@ class Chili(Fruits):
         self.mask_outer = self._get_class_mask(1)
         self.mask_seed = self._get_class_mask(0)
 
-        combined = cv2.bitwise_or(self.mask_endocarp, self.mask_pcp)
-        combined = cv2.bitwise_or(combined, self.mask_outer)
-        combined = cv2.bitwise_or(combined, self.mask_seed)
-        self.mask_chili = cv2.bitwise_or(self.mask_chili, combined)
+        if not np.any(self.mask_chili):
+            raise InvalidChiliCandidate("empty_selected_chili_mask")
 
-        kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-        kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        self.mask_chili = cv2.morphologyEx(self.mask_chili, cv2.MORPH_CLOSE, kernel_close)
-        self.mask_chili = cv2.morphologyEx(self.mask_chili, cv2.MORPH_OPEN, kernel_open)
+        # Raster masks are authoritative. Rebuild display polygons after all
+        # class masks have been clipped to the selected chili.
+        self.polygons = self._build_polygons_from_class_masks()
+        self.rseg["polygons"] = self.polygons
 
-        
-        component_count, component_labels, component_stats, _ = (
-            cv2.connectedComponentsWithStats(
-                (self.mask_chili > 0).astype(np.uint8),
-                connectivity=8,
-            )
-        )
-        total_area = int(np.count_nonzero(self.mask_chili))
-        minimum_area = max(
-            CHILI_MIN_COMPONENT_AREA,
-            int(round(total_area * CHILI_MIN_COMPONENT_RATIO)),
-        )
-        filtered_mask = np.zeros_like(self.mask_chili)
-        for component_id in range(1, component_count):
-            area = component_stats[component_id, cv2.CC_STAT_AREA]
-            if area >= minimum_area:
-                filtered_mask[component_labels == component_id] = 255
-        if np.any(filtered_mask):
-            self.mask_chili = filtered_mask
-
-        self.mask_chili = (
-            ndi.binary_fill_holes(self.mask_chili > 0).astype(np.uint8) * 255
-        )
-
-        # Update all class 4 polygons so display functions use the same
-        contours, _ = cv2.findContours(self.mask_chili, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.polygons = [p for p in self.polygons if p['class_id'] != 4]
-        for contour in contours:
-            if cv2.contourArea(contour) <= 0:
-                continue
-            pts = contour.reshape(-1, 2).astype(np.float32)
-            self.polygons.append({
-                "class_id": 4,
-                "class_name": "chili",
-                "points": pts
-            })
+        # The padded crop may contain a neighbouring fruit. Keep only the
+        # selected chili's pixels for display and all colour-based features.
+        self._black_outside_chili_mask()
 
         self.mask = self.mask_chili
 
@@ -884,21 +865,50 @@ class Chili(Fruits):
     def get_polygons(self):
         return self.rseg["polygons"]
 
+    def _build_polygons_from_class_masks(self):
+        polygons = []
+        class_masks = {
+            0: self.mask_seed,
+            1: self.mask_outer,
+            2: self.mask_pcp,
+            3: self.mask_endocarp,
+            4: self.mask_chili,
+        }
+        for class_id, mask in class_masks.items():
+            contours, _ = cv2.findContours(
+                mask.astype(np.uint8),
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+            for contour in contours:
+                if cv2.contourArea(contour) <= 0:
+                    continue
+                polygons.append({
+                    "class_id": class_id,
+                    "class_name": CLASS_NAMES[class_id],
+                    "points": contour.reshape(-1, 2).astype(np.float32),
+                })
+        return polygons
+
+    def _black_outside_chili_mask(self):
+        mask = (self.mask_chili > 0).astype(np.uint8) * 255
+        self.img = cv2.bitwise_and(self.img, self.img, mask=mask)
+
     def _get_class_mask(self, class_id):
-        polygons = self.rseg.get("polygons", [])
         H, W = self.img.shape[:2]
         combined_mask = np.zeros((H, W), dtype=np.uint8)
-        if polygons:
-            for poly_data in polygons:
-                if poly_data["class_id"] == class_id:
-                    pts = poly_data["points"].astype(np.int32)
-                    cv2.fillPoly(combined_mask, [pts], 255)
-        else:
-            masks_data = self.rseg.get("masks_data", [])
+        masks_data = self.rseg.get("masks_data", [])
+        if masks_data:
             for md in masks_data:
                 if md["class_id"] == class_id:
                     single_mask = (md["mask"] > 0).astype(np.uint8) * 255
                     combined_mask = cv2.bitwise_or(combined_mask, single_mask)
+        else:
+            polygons = self.rseg.get("polygons", [])
+            for poly_data in polygons:
+                if poly_data["class_id"] == class_id:
+                    pts = poly_data["points"].astype(np.int32)
+                    cv2.fillPoly(combined_mask, [pts], 255)
         return combined_mask
 
     def _get_raw_yolo_class_mask(self, class_id):
