@@ -18,6 +18,8 @@ GHI_CHU_CAP_NHAT.md
 pretrain/
 runs/
 data/
+weights/
+tests/
 
 # Python cache
 __pycache__/

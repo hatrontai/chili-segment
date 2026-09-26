@@ -8,7 +8,7 @@ This repository analyzes chili pepper images with a two-stage pipeline:
 The current implementation uses:
 
 - YOLOv8 segmentation for fruit component masks
-- A YOLO-based detector when enabled, or a threshold-based fallback detector
+- YOLOv7 ONNX detection on CPU by default, with a threshold-based fallback
 - QR-code-based scale calibration when a QR code is present in the image
 
 ## Project Structure
@@ -22,8 +22,8 @@ The current implementation uses:
   outer-mesocarp wrinkle geometry
 - `tests/test_geometric_features.py`: synthetic geometry and scale-fallback tests
 - `data/`: sample images and matching annotations
-- `pretrain/`: expected location for pretrained weights
-- `Dockerfile`: container setup for the web app
+- `weights/`: runtime ONNX detector and YOLOv8 segmentation weights
+- `../yolov7_export/`: isolated official YOLOv7 export checkout and artifacts
 
 ## Requirements
 
@@ -36,6 +36,7 @@ The project expects Python 3.10 and these Python packages:
 - `pyzbar`
 - `shapely`
 - `ultralytics`
+- `onnxruntime`
 - `gradio`
 - `scipy`
 
@@ -61,24 +62,38 @@ If you are running on Ubuntu or Debian, you may also need:
 sudo apt-get install libgl1 libglib2.0-0 libzbar0
 ```
 
-### Docker
-
-```bash
-docker build -t chili-phenotyping-app .
-docker run -p 7860:7860 chili-phenotyping-app
-```
-
-The container starts the Gradio app on port `7860`.
 
 ## Pretrained Weights
 
 The repository expects a segmentation weight file at:
 
 ```text
-./pretrain/yolov8_segment_v1.pt
+./weights/yolov8_segment_v2.pt
 ```
 
-If you want to use YOLO-based detection, provide a detection weight file and pass `--use_model_det` with `--weight_det` to the CLI.
+The default detector weight is `./weights/yolov7_detection.onnx`. Set
+`CHILI_DETECTION_WEIGHT` to override it in the Web app, or
+`CHILI_SEGMENT_WEIGHT` to override the segmentation path. A missing or invalid
+ONNX model stops startup with an explicit error instead of silently switching
+detectors.
+
+The ONNX file is exported outside `code_base` from the official YOLOv7 source:
+
+```bash
+cd ../yolov7_export/yolov7
+python export.py \
+  --weights ../weights/yolov7_detection.pt \
+  --img-size 640 640 \
+  --batch-size 1 \
+  --device cpu \
+  --grid \
+  --simplify
+```
+
+This produces a raw-output opset-12 model with input `[1,3,640,640]` and output
+`[1,N,7]`. Validate it with `onnx.checker` before copying it to
+`weights/yolov7_detection.onnx`. The export environment needs `onnx` and
+`onnxsim`; application runtime needs only `onnxruntime`.
 
 ## Web App
 
@@ -101,15 +116,19 @@ sample and an uploaded image are provided, the uploaded image takes priority.
 Run inference from the command line with:
 
 ```bash
-python predictor.py --input_path /path/to/image_or_directory --weight_seg ./pretrain/yolov8_segment_v1.pt
+python predictor.py --input_path /path/to/image_or_directory
 ```
 
 Useful flags:
 
 - `--input_path`: single image path or directory of images
-- `--use_model_det`: use the YOLO detector instead of threshold detection
-- `--weight_det`: detection weight path when `--use_model_det` is enabled
+- `--detector-backend {yolov7_onnx,threshold}`: select detector; ONNX is default
+- `--weight_det`: override the YOLOv7 ONNX path
+- `--det-conf-thres`, `--det-iou-thres`: thresholds (defaults `0.90`, `0.70`)
+- `--det-input-size`: static ONNX side length (default `640`)
+- `--det-crop-top`: top ROI offset (default `540` pixels)
 - `--weight_seg`: segmentation weight path
+- `--use_model_det` and `--name_model_det`: deprecated compatibility aliases
 - `--mesocarp-wrinkle-segment-threshold-mm`: outer-mesocarp chord threshold
   used for the wrinkle feature (default: `5.0` mm; independent of the red
   threshold)
@@ -123,10 +142,16 @@ If you use `--save_csv`, make sure `./runs/predict/` exists first, because the s
 
 `src/detect.py` can run in two modes:
 
-- `model_name="yolo"`: uses a YOLO detection model
-- `model_name="none"`: uses a red-channel thresholding fallback
+- `backend="yolov7_onnx"`: runs the raw graph using only `CPUExecutionProvider`
+- `backend="threshold"`: uses a red-channel thresholding fallback
 
-The fallback detector is tuned for images that match the dataset layout used in this repo. It crops the top 540 pixels before detection.
+Both modes crop the top 540 pixels by default. ONNX preprocessing letterboxes
+the remaining ROI to 640x640 with `(114,114,114)` padding, normalizes to
+float32 NCHW, filters class `chili` (ID 1) using
+`objectness * class_probability >= 0.90`, and applies NumPy NMS at IoU 0.70.
+Bounding boxes are mapped back through the letterbox transform and the 540-pixel
+offset. Input images therefore do not need to be 640x640. The fallback detector
+is tuned for images matching the bundled dataset layout.
 
 ### Segmentation
 

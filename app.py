@@ -9,19 +9,31 @@ import numpy as np
 import pandas as pd
 import torch
 
-from src.detect import DetectModel, get_mask as get_detection_mask
+from src.detect import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_CROP_TOP,
+    DEFAULT_IOU,
+    DetectModel,
+    get_mask as get_detection_mask,
+)
 from src.object import CLASS_COLORS, CLASS_NAMES, Fruits, draw_full_mask_with_labels
 from src.segment import SegmentModel
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-DETECTION_CROP_TOP = 540
+DETECTION_CROP_TOP = DEFAULT_CROP_TOP
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
+WEIGHT_MODEL_DETECT = Path(
+    os.getenv(
+        "CHILI_DETECTION_WEIGHT",
+        str(BASE_DIR / "weights" / "yolov7_detection.onnx"),
+    )
+)
 WEIGHT_MODEL_SEGMENT = Path(
     os.getenv(
         "CHILI_SEGMENT_WEIGHT",
-        str(BASE_DIR / "pretrain" / "yolov8_segment_v2.pt"),
+        str(BASE_DIR / "weights" / "yolov8_segment_v2.pt"),
     )
 )
 
@@ -91,13 +103,23 @@ def _color_legend_html(items):
     )
 
 
+if not WEIGHT_MODEL_DETECT.exists():
+    raise FileNotFoundError(
+        f"YOLOv7 ONNX detection weight not found: {WEIGHT_MODEL_DETECT}"
+    )
 if not WEIGHT_MODEL_SEGMENT.exists():
     raise FileNotFoundError(
         f"Segmentation weight not found: {WEIGHT_MODEL_SEGMENT}"
     )
 
 print(f"Loading pipeline models on device {DEVICE}...")
-model_detect = DetectModel(model_name="none")
+model_detect_onnx = DetectModel(
+    backend="yolov7_onnx",
+    weight_path=WEIGHT_MODEL_DETECT,
+)
+model_detect_threshold = DetectModel(backend="threshold")
+# Backward-compatible default used by extract_chili_features().
+model_detect = model_detect_onnx
 model_segment = SegmentModel(
     weight_path=str(WEIGHT_MODEL_SEGMENT),
     model_name="yolo",
@@ -647,7 +669,7 @@ def extract_chili_features(image_path):
         return pd.DataFrame(columns=FEATURE_COLUMNS)
     fruits = Fruits(
         str(image_path),
-        model_detect=model_detect,
+        model_detect=model_detect_onnx,
         model_segment=model_segment,
     )
     return _features_dataframe(fruits)
@@ -656,6 +678,7 @@ def extract_chili_features(image_path):
 def run_pipeline(
     upload_path,
     sample_name,
+    detector_backend,
     chili_method,
     chili_threshold,
     mesocarp_wrinkle_segment_threshold_mm=5.0,
@@ -670,10 +693,16 @@ def run_pipeline(
             "ở phía trên. Hãy dùng ảnh đúng bố cục dataset hoặc điều chỉnh DetectModel."
         )
 
+    selected_detector = (
+        model_detect_onnx
+        if detector_backend == "yolov7_onnx"
+        else model_detect_threshold
+    )
+
     started_at = time.perf_counter()
     fruits = Fruits(
         str(image_path),
-        model_detect=model_detect,
+        model_detect=selected_detector,
         model_segment=model_segment,
         chili_method=chili_method,
         chili_threshold=chili_threshold,
@@ -708,6 +737,9 @@ def run_pipeline(
         f"- **Nguồn ảnh:** `{source}` — `{image_path.name}`\n"
         f"- **Kích thước:** {width} × {height} px\n"
         f"- **Số quả phát hiện:** {fruits.num_fruit}\n"
+        f"- **Detector:** `{detector_backend}`\n"
+        f"- **Detection weight:** `{WEIGHT_MODEL_DETECT.name if detector_backend == 'yolov7_onnx' else 'threshold'}`\n"
+        f"- **Detection conf/IoU:** `{DEFAULT_CONFIDENCE:.2f}/{DEFAULT_IOU:.2f}`\n"
         f"- **Tỷ lệ hiệu chỉnh:** {ratio_note}\n"
         f"- **Segmentation weight:** `{WEIGHT_MODEL_SEGMENT.name}`\n"
         f"- **Class chili:** {chili_method_note}\n"
@@ -718,8 +750,8 @@ def run_pipeline(
 
     if fruits.num_fruit == 0:
         summary += (
-            "\n\n> Không phát hiện được quả ớt. Hãy kiểm tra tab Detection ROI "
-            "để xác nhận ảnh có đúng bố cục mà threshold detector yêu cầu hay không."
+            "\n\n> Không phát hiện được quả ớt. Hãy kiểm tra Detection ROI, "
+            "backend đã chọn và bước segmentation validation."
         )
     if fruits.scale_warning:
         summary += f"\n\n> ⚠️ {fruits.scale_warning}"
@@ -761,6 +793,12 @@ def build_demo():
             )
 
         with gr.Row():
+            detector_backend_input = gr.Radio(
+                choices=["yolov7_onnx", "threshold"],
+                value="yolov7_onnx",
+                label="Object detector",
+                info="YOLOv7 ONNX chạy CPU; threshold là fallback.",
+            )
             chili_method_input = gr.Radio(
                 choices=["threshold", "yolo"],
                 value="threshold",
@@ -799,7 +837,7 @@ def build_demo():
                     interactive=False,
                 )
             detection_roi_output = gr.Image(
-                label="Ảnh thực tế được truyền vào threshold detector",
+                label="Ảnh ROI thực tế được truyền vào detector",
                 height=460,
                 interactive=False,
             )
@@ -807,7 +845,7 @@ def build_demo():
         with gr.Tab("2. Detection"):
             with gr.Row():
                 threshold_mask_output = gr.Image(
-                    label="Red-channel threshold mask sau morphology closing",
+                    label="Red-channel threshold mask tham chiếu",
                     height=460,
                     interactive=False,
                 )
@@ -920,6 +958,7 @@ def build_demo():
             inputs=[
                 upload_input,
                 sample_input,
+                detector_backend_input,
                 chili_method_input,
                 chili_threshold_input,
                 mesocarp_wrinkle_threshold_input,

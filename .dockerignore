@@ -1,9 +1,0 @@
-__pycache__/
-*.py[cod]
-*$py.class
-.git/
-.gitignore
-runs/
-venv/
-env/
-.env/

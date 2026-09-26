@@ -35,7 +35,6 @@ Dự án có hai điểm vào:
 | Hiệu chỉnh kích thước bằng QR | Đã có | QR được xem là cạnh 10 mm; nếu không đọc được dùng trung bình dataset `0,094305839 mm/pixel` và gắn cờ fallback |
 | Trích xuất đặc trưng | Đã có | Web và CLI đều xuất wrinkle cùng thickness min/trung bình/max |
 | Giao diện kiểm tra pipeline | Đã có | Hiển thị ROI, mask, bbox, crop, segmentation và bảng kết quả |
-| Docker | Đã có | Python 3.10, chạy Gradio ở cổng 7860 |
 | Notebook nghiên cứu | Đã có | Tiền xử lý, dò tham số, đánh giá pipeline và hậu xử lý endocarp |
 | Thickness/wrinkle mới | Đã tích hợp runtime | Dùng chung module hình học giữa `Chili`, Web và CLI |
 | Kiểm thử tự động | Đã có | Có synthetic tests cho skeleton, ray-cast và chia contour; chưa có CI |
@@ -99,7 +98,6 @@ wrinkle, tỷ lệ quy đổi và nguồn tỷ lệ.
 - `sub_process.ipynb`: nghiên cứu hậu xử lý endocarp theo dạng quả dài và quả chuông.
 - `wrinkle_thickness_experiment.ipynb`: thử nghiệm phương pháp mới cho độ dày thành ớt và độ nhăn mép ngoài.
 - `report.md`: mô tả kỹ thuật và công thức; một số nội dung chưa đồng bộ với runtime.
-- `Dockerfile`: môi trường triển khai Gradio.
 - `requirements.txt`: thư viện Python, hiện chưa khóa phiên bản.
 
 ## 6. Dữ liệu, model và kết quả có sẵn
@@ -210,7 +208,7 @@ riêng mặc định `5 mm`; CLI có `--wrinkle-segment-threshold-mm`.
 
 ## 9. Kiểm tra đã thực hiện cho bản ghi này
 
-- Đã đọc các entry point, ba mô-đun trong `src/`, README, report, Dockerfile và requirements.
+- Đã đọc các entry point, ba mô-đun trong `src/`, README, report và requirements.
 - Đã thống kê dữ liệu, pretrained weights, kết quả trong `runs/` và nội dung chính của bốn notebook.
 - Đã parse AST toàn bộ file Python: `app.py`, `predictor.py`, `src/detect.py`, `src/segment.py`, `src/object.py` đều hợp lệ về cú pháp.
 - Đã chạy end-to-end notebook thickness/wrinkle mới trên `029_IT250232_2.jpg`; synthetic tests và real-image checks đều đạt.
@@ -250,11 +248,4 @@ CLI:
 python predictor.py \
   --input_path data/001_IT135673_1.jpg \
   --weight_seg pretrain/yolov8_segment_v2.pt
-```
-
-Docker:
-
-```bash
-docker build -t chili-phenotyping-app .
-docker run -p 7860:7860 chili-phenotyping-app
 ```

@@ -7,13 +7,25 @@ import torch
 import pandas as pd
 from pathlib import Path
 
-from src.detect import DetectModel
+from src.detect import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_CROP_TOP,
+    DEFAULT_INPUT_SIZE,
+    DEFAULT_IOU,
+    DetectModel,
+)
 from src.segment import SegmentModel
 from src.object import Fruits, Chili
 
 
-WEIGHT_MODEL_DETECT = None
-WEIGHT_MODEL_SEGMENT = './pretrain/yolov8_segment_v2.pt'
+BASE_DIR = Path(__file__).resolve().parent
+WEIGHT_MODEL_DETECT = os.getenv(
+    "CHILI_DETECTION_WEIGHT",
+    str(BASE_DIR / "weights" / "yolov7_detection.onnx"),
+)
+WEIGHT_MODEL_SEGMENT = os.getenv(
+    "CHILI_SEGMENT_WEIGHT", str(BASE_DIR / "weights" / "yolov8_segment_v2.pt")
+)
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
 
@@ -28,12 +40,35 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Chili Pepper Segmentation")
 
     parser.add_argument("--input_path", type=str, required=True, help="Path or dir to input image")
-    parser.add_argument("--use_model_det", action='store_true', help="Use model or threshold for get bbox of chili")
-    parser.add_argument("--name_model_det", default='yolo', type=str, help="Name model object detection")
+    parser.add_argument(
+        "--detector-backend",
+        choices=["yolov7_onnx", "threshold"],
+        default="yolov7_onnx",
+        help="Object detector backend (default: YOLOv7 ONNX on CPU)",
+    )
+    parser.add_argument(
+        "--use_model_det",
+        action="store_true",
+        help="Deprecated alias that forces --detector-backend yolov7_onnx",
+    )
+    parser.add_argument(
+        "--name_model_det",
+        choices=["yolo", "yolov7_onnx", "none", "threshold"],
+        default=None,
+        help="Deprecated detector alias: yolo=ONNX, none=threshold",
+    )
     parser.add_argument("--name_model_seg", default='yolo', type=str, help="Name model segmentation")
     parser.add_argument("--device", default=DEVICE, help="set device to run model")
     parser.add_argument("--weight_det", default=WEIGHT_MODEL_DETECT, type=str, required=False, help="Weight pretrain of model object detection for get bbox chili")
     parser.add_argument("--weight_seg", default=WEIGHT_MODEL_SEGMENT, type=str, required=False, help="Weight pretrain of model segmentation")
+    parser.add_argument(
+        "--det-conf-thres", default=DEFAULT_CONFIDENCE, type=float
+    )
+    parser.add_argument("--det-iou-thres", default=DEFAULT_IOU, type=float)
+    parser.add_argument(
+        "--det-input-size", default=DEFAULT_INPUT_SIZE, type=int
+    )
+    parser.add_argument("--det-crop-top", default=DEFAULT_CROP_TOP, type=int)
     parser.add_argument(
         "--chili_method",
         choices=["threshold", "yolo"],
@@ -58,10 +93,24 @@ def parse_args():
     return parser.parse_args()
 
 def inference(args):
+    detector_backend = args.detector_backend
+    if args.name_model_det is not None:
+        detector_backend = (
+            "threshold"
+            if args.name_model_det in {"none", "threshold"}
+            else "yolov7_onnx"
+        )
     if args.use_model_det:
-        model_detect = DetectModel(model_name=args.name_model_det, weight_path=args.weight_det, device=args.device)
-    else:
-        model_detect = DetectModel(model_name='none')
+        detector_backend = "yolov7_onnx"
+
+    model_detect = DetectModel(
+        backend=detector_backend,
+        weight_path=args.weight_det,
+        conf_threshold=args.det_conf_thres,
+        iou_threshold=args.det_iou_thres,
+        input_size=args.det_input_size,
+        crop_top=args.det_crop_top,
+    )
 
     model_segment = SegmentModel(
         weight_path=args.weight_seg,
