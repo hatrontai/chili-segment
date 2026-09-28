@@ -346,11 +346,136 @@ def run_case1_armpit(chili, pcp_total_px):
     return None, None, None, None, contour_p, debug_candidates, False, "CASE1_TOO_SMALL"
 
 
+# ---------------------------------------------------------------------------
+# Mesocarp boundary-noise cleaning helpers (ported from cleanup_mesocarp.py)
+# ---------------------------------------------------------------------------
+
+def _mesocarp_binary_mask(mask, name):
+    """Normalise a mask to a strict uint8 0/255 image."""
+    if mask is None:
+        raise ValueError(f"Could not read {name}.")
+    if mask.ndim == 3:
+        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+    if mask.ndim != 2:
+        raise ValueError(f"{name} must be a single-channel mask.")
+    return np.where(mask > 0, 255, 0).astype(np.uint8)
+
+
+def _roi_gap_in_outer(chili_mask, outer_mask, gap_tolerance, margin):
+    """Return a binary ROI mask covering only the stretches of chili's boundary
+    that outer's mask fails to reach by more than *gap_tolerance* pixels.
+
+    Rationale: noise in (chili - outer) exists only where chili and outer
+    disagree, which is exactly where outer's coverage falls short of chili's
+    true edge.  By expanding only those gap segments by *margin* pixels we get
+    a tight, position-agnostic ROI where a stronger morphological kernel can be
+    applied without touching the rest of the already-correct boundary.
+    """
+    edge_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    chili_boundary = cv2.subtract(chili_mask, cv2.erode(chili_mask, edge_kernel))
+
+    tol_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (gap_tolerance * 2 + 1, gap_tolerance * 2 + 1)
+    )
+    outer_reach = cv2.dilate(outer_mask, tol_kernel)
+
+    gap_segments = cv2.bitwise_and(chili_boundary, cv2.bitwise_not(outer_reach))
+
+    margin_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (margin * 2 + 1, margin * 2 + 1)
+    )
+    return cv2.dilate(gap_segments, margin_kernel)
+
+
+def _open_with_roi(raw, kernel_size, roi_kernel_size, roi_margin, gap_tolerance,
+                   outer_mask, chili_mask):
+    """Morphological opening with an optional stronger pass inside an ROI.
+
+    A global opening with *kernel_size* is applied everywhere.  Where
+    *roi_kernel_size* is given, a second opening with that (larger) kernel is
+    applied only inside the gap-in-outer ROI, and those results replace the
+    global result in that region.  This avoids eroding thin-but-correct
+    structure outside the noisy boundary area.
+    """
+    base_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (kernel_size, kernel_size)
+    )
+    opened = cv2.morphologyEx(raw, cv2.MORPH_OPEN, base_kernel)
+
+    roi_mask = None
+    if roi_kernel_size is not None:
+        roi_mask = _roi_gap_in_outer(chili_mask, outer_mask, gap_tolerance, roi_margin)
+        roi_kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (roi_kernel_size, roi_kernel_size)
+        )
+        roi_opened = cv2.morphologyEx(raw, cv2.MORPH_OPEN, roi_kernel)
+        opened = np.where(roi_mask > 0, roi_opened, opened).astype(np.uint8)
+
+    return opened, roi_mask
+
+
+def _clean_mesocarp(mask_raw, kernel_size, roi_kernel_size, roi_margin,
+                    gap_tolerance, outer_mask, chili_mask):
+    """Apply opening (with optional ROI stronger pass) and keep only the
+    largest 8-connected component of the result."""
+    raw = _mesocarp_binary_mask(mask_raw, "mesocarp_raw")
+    opened, _roi = _open_with_roi(
+        raw, kernel_size, roi_kernel_size, roi_margin, gap_tolerance,
+        outer_mask, chili_mask,
+    )
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(
+        (opened > 0).astype(np.uint8), connectivity=8
+    )
+    filtered = np.zeros_like(raw)
+    if count > 1:
+        largest_label = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        filtered[labels == largest_label] = 255
+    return filtered
+
+
+# ---------------------------------------------------------------------------
+
 def compute_mesocarp_mask_raw(chili):
-    mask = cv2.subtract(chili.mask_chili, chili.mask_endocarp)
-    mask = cv2.subtract(mask, chili.mask_outer)
+    """Build the mesocarp mask with boundary-noise cleaning.
+
+    Steps:
+    1. chili - outer  →  _clean_mesocarp() applies a base morphological
+       opening (kernel 7) everywhere, plus a stronger opening (kernel 21)
+       only inside the ROI patches where outer's coverage falls short of
+       chili's true edge (gap-in-outer mode), then keeps only the largest
+       8-connected component.
+    2. Subtract endocarp, pcp, seed from the cleaned mask.
+    3. Remove orphan islands smaller than 5 % of the main body (artefacts
+       left behind when step 2 cuts the mask into pieces).
+    """
+    raw_chili_minus_outer = cv2.subtract(chili.mask_chili, chili.mask_outer)
+    cleaned = _clean_mesocarp(
+        raw_chili_minus_outer,
+        kernel_size=7,
+        roi_kernel_size=21,
+        roi_margin=30,
+        gap_tolerance=5,
+        outer_mask=chili.mask_outer,
+        chili_mask=chili.mask_chili,
+    )
+
+    mask = cv2.subtract(cleaned, chili.mask_endocarp)
     mask = cv2.subtract(mask, chili.mask_pcp)
     mask = cv2.subtract(mask, chili.mask_seed)
+
+    # Remove orphan islands smaller than 5 % of the largest component.
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(
+        (mask > 0).astype(np.uint8), connectivity=8
+    )
+    if count > 1:
+        max_area = int(np.max(stats[1:, cv2.CC_STAT_AREA]))
+        threshold = max_area * 0.05
+        filtered = np.zeros_like(mask)
+        for i in range(1, count):
+            if stats[i, cv2.CC_STAT_AREA] >= threshold:
+                filtered[labels == i] = 255
+        mask = filtered
+
     return mask
 
 
