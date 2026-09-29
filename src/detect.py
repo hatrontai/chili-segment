@@ -6,8 +6,9 @@ import onnxruntime as ort
 
 
 DEFAULT_INPUT_SIZE = 640
-DEFAULT_CONFIDENCE = 0.90
-DEFAULT_IOU = 0.70
+DEFAULT_CONFIDENCE = 0.70
+DEFAULT_IOU = 0.30
+DEFAULT_CONTAINMENT = 0.60
 DEFAULT_CROP_TOP = 540
 CHILI_CLASS_ID = 1
 DEFAULT_ONNX_WEIGHT = (
@@ -74,8 +75,37 @@ def box_iou_one_to_many(box, boxes):
     )
 
 
-def non_max_suppression(boxes, scores, iou_threshold):
-    """Return indices kept by class-specific NumPy NMS."""
+def box_intersection_over_min_area(box, boxes):
+    """Return intersection divided by the smaller box area (IoM)."""
+    intersection_x1 = np.maximum(box[0], boxes[:, 0])
+    intersection_y1 = np.maximum(box[1], boxes[:, 1])
+    intersection_x2 = np.minimum(box[2], boxes[:, 2])
+    intersection_y2 = np.minimum(box[3], boxes[:, 3])
+    intersection = (
+        np.maximum(0.0, intersection_x2 - intersection_x1)
+        * np.maximum(0.0, intersection_y2 - intersection_y1)
+    )
+    box_area = max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
+    boxes_area = (
+        np.maximum(0.0, boxes[:, 2] - boxes[:, 0])
+        * np.maximum(0.0, boxes[:, 3] - boxes[:, 1])
+    )
+    smaller_area = np.minimum(box_area, boxes_area)
+    return np.divide(
+        intersection,
+        smaller_area,
+        out=np.zeros_like(intersection, dtype=np.float32),
+        where=smaller_area > 0,
+    )
+
+
+def non_max_suppression(
+    boxes,
+    scores,
+    iou_threshold,
+    containment_threshold=DEFAULT_CONTAINMENT,
+):
+    """Return indices kept by class-specific IoU/containment NMS."""
     if len(boxes) == 0:
         return []
     order = np.argsort(scores)[::-1]
@@ -87,7 +117,13 @@ def non_max_suppression(boxes, scores, iou_threshold):
             break
         remaining = order[1:]
         overlaps = box_iou_one_to_many(boxes[current], boxes[remaining])
-        order = remaining[overlaps <= iou_threshold]
+        containments = box_intersection_over_min_area(
+            boxes[current], boxes[remaining]
+        )
+        order = remaining[
+            (overlaps < iou_threshold)
+            & (containments < containment_threshold)
+        ]
     return keep
 
 
@@ -111,6 +147,7 @@ def decode_yolov7_output(
     confidence_threshold=DEFAULT_CONFIDENCE,
     iou_threshold=DEFAULT_IOU,
     chili_class_id=CHILI_CLASS_ID,
+    containment_threshold=DEFAULT_CONTAINMENT,
 ):
     """Decode raw YOLOv7 [cx,cy,w,h,obj,class...] output into xyxy boxes."""
     predictions = np.asarray(output)
@@ -143,7 +180,12 @@ def decode_yolov7_output(
             xywh[:, 1] + xywh[:, 3] / 2,
         )
     )
-    kept = non_max_suppression(boxes, selected_scores, iou_threshold)
+    kept = non_max_suppression(
+        boxes,
+        selected_scores,
+        iou_threshold,
+        containment_threshold,
+    )
     return boxes[kept], selected_scores[kept]
 
 
@@ -201,6 +243,7 @@ class DetectModel:
         backend=None,
         conf_threshold=DEFAULT_CONFIDENCE,
         iou_threshold=DEFAULT_IOU,
+        containment_threshold=DEFAULT_CONTAINMENT,
         input_size=DEFAULT_INPUT_SIZE,
         crop_top=DEFAULT_CROP_TOP,
     ):
@@ -224,12 +267,15 @@ class DetectModel:
         self.backend = backend
         self.conf_threshold = float(conf_threshold)
         self.iou_threshold = float(iou_threshold)
+        self.containment_threshold = float(containment_threshold)
         self.input_size = int(input_size)
         self.crop_top = int(crop_top)
         if not 0 <= self.conf_threshold <= 1:
             raise ValueError("conf_threshold must be between 0 and 1.")
         if not 0 <= self.iou_threshold <= 1:
             raise ValueError("iou_threshold must be between 0 and 1.")
+        if not 0 <= self.containment_threshold <= 1:
+            raise ValueError("containment_threshold must be between 0 and 1.")
         if self.input_size <= 0:
             raise ValueError("input_size must be greater than zero.")
         if self.crop_top < 0:
@@ -300,6 +346,7 @@ class DetectModel:
             output,
             confidence_threshold=self.conf_threshold,
             iou_threshold=self.iou_threshold,
+            containment_threshold=self.containment_threshold,
         )
         return boxes, scores, scale, padding
 

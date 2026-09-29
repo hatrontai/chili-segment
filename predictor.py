@@ -9,6 +9,7 @@ from pathlib import Path
 
 from src.detect import (
     DEFAULT_CONFIDENCE,
+    DEFAULT_CONTAINMENT,
     DEFAULT_CROP_TOP,
     DEFAULT_INPUT_SIZE,
     DEFAULT_IOU,
@@ -66,6 +67,12 @@ def parse_args():
     )
     parser.add_argument("--det-iou-thres", default=DEFAULT_IOU, type=float)
     parser.add_argument(
+        "--det-containment-thres",
+        default=DEFAULT_CONTAINMENT,
+        type=float,
+        help="Suppress a lower-confidence box when IoM reaches this value",
+    )
+    parser.add_argument(
         "--det-input-size", default=DEFAULT_INPUT_SIZE, type=int
     )
     parser.add_argument("--det-crop-top", default=DEFAULT_CROP_TOP, type=int)
@@ -108,6 +115,7 @@ def inference(args):
         weight_path=args.weight_det,
         conf_threshold=args.det_conf_thres,
         iou_threshold=args.det_iou_thres,
+        containment_threshold=args.det_containment_thres,
         input_size=args.det_input_size,
         crop_top=args.det_crop_top,
     )

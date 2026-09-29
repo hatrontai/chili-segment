@@ -16,7 +16,9 @@ CLASS_NAMES = {
 
 
 class SegmentModel:
+    COMPONENT_CONF_THRESHOLD = 0.10
     SEED_CONF_THRESHOLD = 0.35
+    CHILI_VALIDATION_CONF_THRESHOLD = 0.01
 
     def __init__(self, weight_path="../pretrain/yolov8_segment_v1.pt",
                  model_name='yolo', device='cpu', imgsz=640,
@@ -96,7 +98,18 @@ class SegmentModel:
         x, y, width, height = cv2.boundingRect((mask > 0).astype(np.uint8))
         return np.array([x, y, x + width, y + height], dtype=np.float32)
 
-    def predict(self, image, chili_method=None, chili_threshold=None):
+    def predict(
+        self,
+        image,
+        chili_method=None,
+        chili_threshold=None,
+        validation_mode="detector_trusted",
+    ):
+        if validation_mode not in {"detector_trusted", "any_segment"}:
+            raise ValueError(
+                "Unsupported validation_mode. Use 'detector_trusted' or "
+                "'any_segment'."
+            )
         target_class = 3
         epsilon_factor = 0.002
         min_dist = 4.0
@@ -123,7 +136,7 @@ class SegmentModel:
         results = self.model.predict(
             source=image_bgr,
             imgsz=self.imgsz,
-            conf=0.1,
+            conf=self.CHILI_VALIDATION_CONF_THRESHOLD,
             iou=0.7,
             device=self.device,
             retina_masks=True,
@@ -146,7 +159,13 @@ class SegmentModel:
                 class_id = int(boxes.cls[i])
                 confidence = float(boxes.conf[i])
 
-                if class_id == 0 and confidence < self.SEED_CONF_THRESHOLD:
+                if class_id == 0:
+                    if confidence < self.SEED_CONF_THRESHOLD:
+                        continue
+                elif class_id == 4:
+                    if confidence < self.CHILI_VALIDATION_CONF_THRESHOLD:
+                        continue
+                elif confidence < self.COMPONENT_CONF_THRESHOLD:
                     continue
 
                 bbox = boxes.xyxy[i].cpu().numpy()
@@ -194,6 +213,10 @@ class SegmentModel:
         has_yolo_chili = any(
             np.any(candidate['mask']) for candidate in yolo_chili_candidates
         )
+        has_any_segment_mask = any(
+            np.any(candidate['mask'])
+            for candidate in masks_data + yolo_chili_candidates
+        )
         selected_chili_mask = np.zeros(
             (img_height, img_width), dtype=np.uint8
         )
@@ -201,10 +224,9 @@ class SegmentModel:
         selected_chili_source = selected_chili_method
 
         if selected_chili_method == 'threshold':
-            chili_mask, threshold_cutoff = self._threshold_chili_mask(
+            selected_chili_mask, threshold_cutoff = self._threshold_chili_mask(
                 image, selected_chili_threshold,
             )
-            selected_chili_mask = chili_mask
             selected_chili_confidence = 1.0
         elif yolo_chili_candidates:
             selected_candidate = max(
@@ -216,13 +238,27 @@ class SegmentModel:
             )
             selected_chili_confidence = selected_candidate['confidence']
 
-        is_valid_chili = bool(
-            has_yolo_chili and np.any(selected_chili_mask)
+        # Segmentation classes are optional for model-detected candidates.
+        # Measurements still need one authoritative fruit mask, so threshold
+        # segmentation is the fallback whenever class chili is unavailable.
+        if not np.any(selected_chili_mask):
+            selected_chili_mask, threshold_cutoff = self._threshold_chili_mask(
+                image, selected_chili_threshold,
+            )
+            selected_chili_confidence = 1.0
+            selected_chili_source = 'threshold_fallback'
+
+        has_measurement_mask = bool(np.any(selected_chili_mask))
+        segment_confirmation_ok = (
+            validation_mode == 'detector_trusted' or has_any_segment_mask
         )
-        if not has_yolo_chili:
-            rejection_reason = 'no_yolo_chili_mask'
-        elif not np.any(selected_chili_mask):
-            rejection_reason = 'empty_selected_chili_mask'
+        is_valid_chili = bool(
+            has_measurement_mask and segment_confirmation_ok
+        )
+        if not has_measurement_mask:
+            rejection_reason = 'empty_measurement_mask'
+        elif not segment_confirmation_ok:
+            rejection_reason = 'no_segment_mask'
         else:
             rejection_reason = None
 
@@ -289,7 +325,10 @@ class SegmentModel:
                 'chili_method': selected_chili_method,
                 'chili_threshold': selected_chili_threshold,
                 'chili_threshold_cutoff': threshold_cutoff,
+                'validation_mode': validation_mode,
+                'has_any_segment_mask': has_any_segment_mask,
                 'has_yolo_chili': has_yolo_chili,
+                'mask_source': selected_chili_source,
                 'is_valid_chili': is_valid_chili,
                 'rejection_reason': rejection_reason,
             },

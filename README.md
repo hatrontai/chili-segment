@@ -124,7 +124,8 @@ Useful flags:
 - `--input_path`: single image path or directory of images
 - `--detector-backend {yolov7_onnx,threshold}`: select detector; ONNX is default
 - `--weight_det`: override the YOLOv7 ONNX path
-- `--det-conf-thres`, `--det-iou-thres`: thresholds (defaults `0.90`, `0.70`)
+- `--det-conf-thres`, `--det-iou-thres`: thresholds (defaults `0.70`, `0.30`)
+- `--det-containment-thres`: nested-box IoM threshold (default `0.60`)
 - `--det-input-size`: static ONNX side length (default `640`)
 - `--det-crop-top`: top ROI offset (default `540` pixels)
 - `--weight_seg`: segmentation weight path
@@ -148,7 +149,16 @@ If you use `--save_csv`, make sure `./runs/predict/` exists first, because the s
 Both modes crop the top 540 pixels by default. ONNX preprocessing letterboxes
 the remaining ROI to 640x640 with `(114,114,114)` padding, normalizes to
 float32 NCHW, filters class `chili` (ID 1) using
-`objectness * class_probability >= 0.90`, and applies NumPy NMS at IoU 0.70.
+`objectness * class_probability >= 0.70`, and applies NumPy NMS at IoU 0.30.
+A lower-confidence nested box is also suppressed when intersection over the
+smaller box area (IoM) reaches 0.60.
+
+YOLOv7 candidates are trusted and are not rejected when segmentation classes
+are absent. Threshold-detector candidates require at least one retained
+segmentation mask from any class. When class `chili` is unavailable in YOLO
+mask mode, the largest red-threshold contour becomes the measurement mask.
+Component classes remain filtered at `0.10`, seed at `0.35`, and chili at
+`0.01`; any retained subordinate mask is clipped to the measurement mask.
 Bounding boxes are mapped back through the letterbox transform and the 540-pixel
 offset. Input images therefore do not need to be 640x640. The fallback detector
 is tuned for images matching the bundled dataset layout.
@@ -206,3 +216,10 @@ at least 10 pixels. Legacy wall/stem identifiers are not retained.
 - The repository includes notebooks for preprocessing and parameter exploration, but they are not required for runtime inference.
 - The code is research-oriented and expects images in a format similar to the bundled samples.
 - Some helper methods are present for visualization and analysis, but the main entry points are `app.py` and `predictor.py`.
+
+### Regression sampling policy
+
+Future image regressions should sample from `../jeju_segmentation/`, record a
+random seed, and stratify for morphological diversity. At minimum, selection
+should cover fruit count, relative polygon area, aspect ratio, circularity,
+solidity, and extent instead of using only the small bundled `data/` subset.

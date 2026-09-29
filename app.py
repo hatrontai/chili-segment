@@ -11,6 +11,7 @@ import torch
 
 from src.detect import (
     DEFAULT_CONFIDENCE,
+    DEFAULT_CONTAINMENT,
     DEFAULT_CROP_TOP,
     DEFAULT_IOU,
     DetectModel,
@@ -739,7 +740,8 @@ def run_pipeline(
         f"- **Số quả phát hiện:** {fruits.num_fruit}\n"
         f"- **Detector:** `{detector_backend}`\n"
         f"- **Detection weight:** `{WEIGHT_MODEL_DETECT.name if detector_backend == 'yolov7_onnx' else 'threshold'}`\n"
-        f"- **Detection conf/IoU:** `{DEFAULT_CONFIDENCE:.2f}/{DEFAULT_IOU:.2f}`\n"
+        f"- **Detection conf/IoU/IoM:** "
+        f"`{DEFAULT_CONFIDENCE:.2f}/{DEFAULT_IOU:.2f}/{DEFAULT_CONTAINMENT:.2f}`\n"
         f"- **Tỷ lệ hiệu chỉnh:** {ratio_note}\n"
         f"- **Segmentation weight:** `{WEIGHT_MODEL_SEGMENT.name}`\n"
         f"- **Class chili:** {chili_method_note}\n"

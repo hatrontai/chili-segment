@@ -673,6 +673,12 @@ class Fruits(object):
         self.path = path
         self.model_segment = model_segment
         self.model_detect = model_detect
+        detector_backend = getattr(model_detect, "backend", None)
+        self.validation_mode = (
+            "any_segment"
+            if detector_backend == "threshold"
+            else "detector_trusted"
+        )
         self.chili_method = chili_method
         self.chili_threshold = chili_threshold
         if mesocarp_wrinkle_segment_threshold_mm <= 0:
@@ -700,8 +706,8 @@ class Fruits(object):
         self.image = Image.open(path)
         self.width_img, self.height_img = self.image.size
 
-        # Segment every detector candidate before exposing it as a fruit. A
-        # candidate without a YOLO chili mask is discarded completely.
+        # Model detections are trusted. Threshold detections require at least
+        # one segmentation mask, without forcing any particular class.
         candidate_boxes = sorted(self.get_bbox_chili(), key=lambda box: box[0])
         self.box_cut = []
         self.items = []
@@ -726,6 +732,7 @@ class Fruits(object):
             self.ratio,
             chili_method=self.chili_method,
             chili_threshold=self.chili_threshold,
+            validation_mode=self.validation_mode,
             scale_source=self.scale_source,
             mesocarp_wrinkle_segment_threshold_mm=(
                 self.mesocarp_wrinkle_segment_threshold_mm
@@ -802,6 +809,7 @@ class Chili(Fruits):
         ratio,
         chili_method=None,
         chili_threshold=None,
+        validation_mode="detector_trusted",
         scale_source="provided",
         mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
     ):
@@ -811,6 +819,7 @@ class Chili(Fruits):
         self.id = index
         self.ratio = ratio
         self.scale_source = scale_source
+        self.validation_mode = validation_mode
         if mesocarp_wrinkle_segment_threshold_mm <= 0:
             raise ValueError(
                 "mesocarp_wrinkle_segment_threshold_mm must be greater than zero"
@@ -828,6 +837,7 @@ class Chili(Fruits):
             self.img,
             chili_method=chili_method,
             chili_threshold=chili_threshold,
+            validation_mode=validation_mode,
         )
         segment_stats = self.rseg.get("stats", {})
         if not segment_stats.get("is_valid_chili", False):
