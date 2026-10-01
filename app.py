@@ -19,6 +19,7 @@ from src.detect import (
 )
 from src.object import CLASS_COLORS, CLASS_NAMES, Fruits, draw_full_mask_with_labels
 from src.segment import SegmentModel
+from src.traits import CANONICAL_TRAIT_COLUMNS, canonical_trait_row
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -48,34 +49,18 @@ SAMPLE_IMAGES = sorted(
 FEATURE_COLUMNS = [
     "ID",
     "Name",
+] + list(CANONICAL_TRAIT_COLUMNS) + [
     "Width BBox",
     "Height BBox",
-    "Width Min",
-    "Width Max",
-    "Average Width",
-    "Length",
     "Width (9 segments)",
     "Length (9 segments)",
-    "Area",
-    "Mesocarp Area",
     "Fruit Body Area",
-    "Placenta Area",
-    "Min Mesocarp Thickness",
-    "Average Mesocarp Thickness",
-    "Max Mesocarp Thickness",
-    "Flesh-to-Placenta Ratio",
-    "Seed Count",
-    "Seed Area Sum",
     "Seed Area Min",
     "Seed Area Max",
     "Seed Area Average",
     "Seed Area Std",
     "Redness",
     "Color Uniformity",
-    "Mesocarp Wrinkle Index",
-    "Curvature Index",
-    "Seed Density",
-    "Asymmetry Index",
     "Scale Ratio",
     "Scale Source",
 ]
@@ -411,20 +396,20 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
     metrics = [
         f"Scale: {_format_metric(chili.ratio, 6)}  ({scale_unit})",
         f"BBox W x H: {_format_metric(chili.width_bbox)} x {_format_metric(chili.height_bbox)} {unit}",
-        f"Width min / avg / max: {_format_metric(widths['min'])} / {_format_metric(widths['avg'])} / {_format_metric(widths['max'])} {unit}",
-        f"Length: {_format_metric(chili.length_fruit)} {unit}",
-        f"Whole fruit area: {_format_metric(chili.area_fruit)} {area_unit}",
-        f"Mesocarp area: {_format_metric(chili.mesocarp_area)} {area_unit}",
-        f"Placenta area: {_format_metric(chili.placenta_area)} {area_unit}",
-        f"Flesh / placenta: {_format_metric(chili.flesh_placenta_ratio)}",
-        f"Mesocarp thickness min / avg / max: {_format_metric(thickness['min_mesocarp_thickness'])} / {_format_metric(thickness['avg_mesocarp_thickness'])} / {_format_metric(thickness['max_mesocarp_thickness'])} {unit}",
-        f"Seed count: {_format_metric(chili.number_seeds)}",
-        f"Seed area total: {_format_metric(seeds['sum'])} {area_unit}",
+        f"FW_min / FW_mean / FW_max: {_format_metric(widths['min'])} / {_format_metric(widths['avg'])} / {_format_metric(widths['max'])} {unit}",
+        f"Fruit Length (FL): {_format_metric(chili.length_fruit)} {unit}",
+        f"Fruit Area (FA): {_format_metric(chili.area_fruit)} {area_unit}",
+        f"Mesocarp Area (MA): {_format_metric(chili.mesocarp_area)} {area_unit}",
+        f"Placenta Area (PA): {_format_metric(chili.placenta_area)} {area_unit}",
+        f"FPR: {_format_metric(chili.flesh_placenta_ratio)}",
+        f"MT_min / MT_mean / MT_max: {_format_metric(thickness['min_mesocarp_thickness'])} / {_format_metric(thickness['avg_mesocarp_thickness'])} / {_format_metric(thickness['max_mesocarp_thickness'])} {unit}",
+        f"Seed Count (SC): {_format_metric(chili.number_seeds)}",
+        f"Total Seed Area (SA): {_format_metric(seeds['sum'])} {area_unit}",
         f"Redness / uniformity: {_format_metric(chili.redness, 4)} / {_format_metric(chili.color_uniformity, 4)}",
-        f"Mesocarp wrinkle index: {_format_metric(chili.mesocarp_wrinkle_index, 5)}",
-        f"Curvature index: {_format_metric(chili.curvature_index, 4)}  (1 = straight)",
-        f"Seed density: {_format_metric(chili.seed_density, 4)}",
-        f"Asymmetry index: {_format_metric(chili.asymmetry_index, 4)}",
+        f"Mesocarp Wrinkle Index (MWI): {_format_metric(chili.mesocarp_wrinkle_index, 5)}",
+        f"Fruit Curvature Index (FCI): {_format_metric(chili.curvature_index, 4)}  (1 = straight)",
+        f"Seed-to-Cavity Area Ratio (SCR): {_format_metric(chili.seed_density, 4)}",
+        f"Fruit Asymmetry Index (FAI): {_format_metric(chili.asymmetry_index, 4)}",
     ]
 
     text_x = image_width * 2 + 18
@@ -622,47 +607,27 @@ def _update_comparison_layout(columns):
 def _features_dataframe(fruits):
     rows = []
     for chili in fruits.items:
-        widths = chili.width_fruit_stats
-        thickness = chili.mesocarp_thickness_stats
         seeds = chili.seed_stats
-        rows.append(
-            {
-                "ID": chili.id,
-                "Name": chili.name,
-                "Width BBox": chili.width_bbox,
-                "Height BBox": chili.height_bbox,
-                "Width Min": widths["min"],
-                "Width Max": widths["max"],
-                "Average Width": chili.width_fruit,
-                "Length": chili.length_fruit,
-                "Width (9 segments)": chili.width_fruit_9seg,
-                "Length (9 segments)": chili.length_fruit_9seg,
-                "Area": chili.area_fruit,
-                "Mesocarp Area": chili.mesocarp_area,
-                "Fruit Body Area": chili.fruit_body_area,
-                "Placenta Area": chili.placenta_area,
-                "Min Mesocarp Thickness": thickness["min_mesocarp_thickness"],
-                "Average Mesocarp Thickness": thickness["avg_mesocarp_thickness"],
-                "Max Mesocarp Thickness": thickness["max_mesocarp_thickness"],
-                "Flesh-to-Placenta Ratio": chili.flesh_placenta_ratio,
-                "Seed Count": chili.number_seeds,
-                "Seed Area Sum": seeds["sum"],
-                "Seed Area Min": seeds["min"],
-                "Seed Area Max": seeds["max"],
-                "Seed Area Average": seeds["avg"],
-                "Seed Area Std": seeds["std"],
-                "Redness": chili.redness,
-                "Color Uniformity": chili.color_uniformity,
-                "Mesocarp Wrinkle Index": chili.mesocarp_wrinkle_index,
-                "Curvature Index": chili.curvature_index,
-                "Seed Density": chili.seed_density,
-                "Asymmetry Index": chili.asymmetry_index,
-                "Scale Ratio": chili.ratio,
-                "Scale Source": chili.scale_source,
-            }
-        )
+        row = {
+            "ID": chili.id,
+            "Name": chili.name,
+            "Width BBox": chili.width_bbox,
+            "Height BBox": chili.height_bbox,
+            "Width (9 segments)": chili.width_fruit_9seg,
+            "Length (9 segments)": chili.length_fruit_9seg,
+            "Fruit Body Area": chili.fruit_body_area,
+            "Seed Area Min": seeds["min"],
+            "Seed Area Max": seeds["max"],
+            "Seed Area Average": seeds["avg"],
+            "Seed Area Std": seeds["std"],
+            "Redness": chili.redness,
+            "Color Uniformity": chili.color_uniformity,
+            "Scale Ratio": chili.ratio,
+            "Scale Source": chili.scale_source,
+        }
+        row.update(canonical_trait_row(chili))
+        rows.append(row)
     return pd.DataFrame(rows, columns=FEATURE_COLUMNS)
-
 
 def extract_chili_features(image_path):
     """Backward-compatible single-output function used by the original app."""

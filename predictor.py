@@ -17,6 +17,7 @@ from src.detect import (
 )
 from src.segment import SegmentModel
 from src.object import Fruits, Chili
+from src.traits import CANONICAL_TRAIT_COLUMNS, canonical_trait_row
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -28,6 +29,27 @@ WEIGHT_MODEL_SEGMENT = os.getenv(
     "CHILI_SEGMENT_WEIGHT", str(BASE_DIR / "weights" / "yolov8_segment_v2.pt")
 )
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
+
+PREDICTOR_EXTRA_COLUMNS = [
+    "Width BBox",
+    "Height BBox",
+    "Width (9 segments)",
+    "Length (9 segments)",
+    "Fruit Body Area",
+    "Seed Area Min",
+    "Seed Area Max",
+    "Seed Area Average",
+    "Seed Area Std",
+    "Redness",
+    "Color Uniformity",
+    "Scale Ratio",
+    "Scale Source",
+]
+PREDICTOR_COLUMNS = (
+    ["ID", "Name Root", "Name"]
+    + list(CANONICAL_TRAIT_COLUMNS)
+    + PREDICTOR_EXTRA_COLUMNS
+)
 
 
 def positive_float(value):
@@ -159,30 +181,31 @@ def inference(args):
 
         for chili in chilis.items:
             row = {
-                'id': chili.id,
-                'name_root': name_image,
-                'name_image': chili.name,
-                'width_bbox': chili.width_bbox,
-                'height_bbox': chili.height_bbox,
-                'average_width': chili.width_fruit,
-                'min_width': chili.width_fruit_stats['min'],
-                'max_width': chili.width_fruit_stats['max'],
-                'rednees': chili.redness,
-                'area': chili.area_fruit,
-                'mesocarp_area': chili.mesocarp_area,
-                'placenta_area': chili.placenta_area,
-                'flesh_placenta_ratio': chili.flesh_placenta_ratio,
-                'min_mesocarp_thickness': chili.mesocarp_thickness_stats['min_mesocarp_thickness'],
-                'average_mesocarp_thickness': chili.mesocarp_thickness_stats['avg_mesocarp_thickness'],
-                'max_mesocarp_thickness': chili.mesocarp_thickness_stats['max_mesocarp_thickness'],
-                'mesocarp_wrinkle_index': chili.mesocarp_wrinkle_index,
-                'scale_ratio': chili.ratio,
-                'scale_source': chili.scale_source,
+                "ID": chili.id,
+                "Name Root": name_image,
+                "Name": chili.name,
             }
+            row.update(canonical_trait_row(chili))
+            row.update(
+                {
+                    "Width BBox": chili.width_bbox,
+                    "Height BBox": chili.height_bbox,
+                    "Width (9 segments)": chili.width_fruit_9seg,
+                    "Length (9 segments)": chili.length_fruit_9seg,
+                    "Fruit Body Area": chili.fruit_body_area,
+                    "Seed Area Min": chili.seed_stats["min"],
+                    "Seed Area Max": chili.seed_stats["max"],
+                    "Seed Area Average": chili.seed_stats["avg"],
+                    "Seed Area Std": chili.seed_stats["std"],
+                    "Redness": chili.redness,
+                    "Color Uniformity": chili.color_uniformity,
+                    "Scale Ratio": chili.ratio,
+                    "Scale Source": chili.scale_source,
+                }
+            )
             rows.append(row)
-        # results.append(chilis)
-    results = pd.DataFrame(rows)
-    
+    results = pd.DataFrame(rows, columns=PREDICTOR_COLUMNS)
+
     if args.save_csv:
         results.to_csv('./runs/predict/output.csv')
 

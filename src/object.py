@@ -20,6 +20,7 @@ from src.geometric_features import (
     calculate_mesocarp_thickness_stats,
     calculate_mesocarp_wrinkle_index,
 )
+from src.traits import trait_values_by_symbol
 
 CLASS_NAMES = {0: "seed", 1: "outer", 2: "PCP", 3: "endocarp", 4: "chili"}
 CLASS_COLORS = {
@@ -1400,6 +1401,10 @@ class Chili(Fruits):
         return calculate_mesocarp_wrinkle_index(
             self._get_mesocarp_feature_data(), self.ratio, threshold
         )
+
+    def get_trait_values(self):
+        """Return the 17 canonical phenotypic traits keyed by their symbols."""
+        return trait_values_by_symbol(self)
 
     def get_hist(self):
         #Preserve the original red-channel histogram visualization helper.

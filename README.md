@@ -180,16 +180,29 @@ included in `Fruits.items`, Web results, or CLI CSV output.
 
 ### Feature Extraction
 
-`src/object.py` builds a `Fruits` object for each image and a `Chili` object for each detected fruit. It extracts:
+`src/object.py` builds a `Fruits` object for each image and a `Chili` object for each detected fruit. The 17 primary traits use one canonical registry in `src/traits.py`:
 
-- bounding box width and height
-- fruit width
-- fruit length
-- area
-- redness
-- mesocarp area and flesh-to-placenta ratio
-- mesocarp thickness (minimum, average, and maximum)
-- mesocarp wrinkle index (mean `arc/chord - 1`)
+| Trait | Symbol | Unit | Legacy source |
+| --- | --- | --- | --- |
+| Fruit Length | `FL` | mm | `length_fruit` |
+| Mean Fruit Width | `FW_mean` | mm | `width_fruit` |
+| Minimum Fruit Width | `FW_min` | mm | `width_fruit_stats["min"]` |
+| Maximum Fruit Width | `FW_max` | mm | `width_fruit_stats["max"]` |
+| Fruit Area | `FA` | mm² | `area_fruit` |
+| Mesocarp Area | `MA` | mm² | `mesocarp_area` |
+| Mean Mesocarp Thickness | `MT_mean` | mm | `mesocarp_thickness_stats["avg_mesocarp_thickness"]` |
+| Minimum Mesocarp Thickness | `MT_min` | mm | `mesocarp_thickness_stats["min_mesocarp_thickness"]` |
+| Maximum Mesocarp Thickness | `MT_max` | mm | `mesocarp_thickness_stats["max_mesocarp_thickness"]` |
+| Placenta Area | `PA` | mm² | `placenta_area` |
+| Total Seed Area | `SA` | mm² | `seed_stats["sum"]` |
+| Seed Count | `SC` | count | `number_seeds` |
+| Flesh-to-Placenta Area Ratio | `FPR` | dimensionless | `flesh_placenta_ratio` |
+| Seed-to-Cavity Area Ratio | `SCR` | dimensionless | `seed_density` |
+| Fruit Curvature Index | `FCI` | dimensionless | `curvature_index` |
+| Fruit Asymmetry Index | `FAI` | dimensionless | `asymmetry_index` |
+| Mesocarp Wrinkle Index | `MWI` | dimensionless | `mesocarp_wrinkle_index` |
+
+Call `Chili.get_trait_values()` to obtain these values keyed by symbol. Web and CLI CSV outputs use the same human-readable columns, such as `Fruit Length (FL)` and `Seed-to-Cavity Area Ratio (SCR)`. Legacy attributes remain available for compatibility. Bounding boxes, 9-segment measurements, individual-seed statistics, color metrics, and scale metadata remain as extended output fields.
 
 If a QR code is detected, its 10 mm side is used to estimate the
 pixel-to-real-world scale. If QR decoding fails, runtime continues with the
@@ -205,11 +218,11 @@ only the true outer mesocarp edge and excludes the pedicel region.
 
 The public runtime names use `mask_pcp`, `mask_pedicel`, `mask_placenta`, and
 `mask_mesocarp`. Feature outputs use `mesocarp_area`,
-`mesocarp_thickness_stats` and `mesocarp_wrinkle_index`. The separate
-`flesh_placenta_ratio` feature retains its original definition
-(`A_flesh / A_placenta`): its flesh mask excludes outer, PCP, and seed while
-retaining endocarp. It is reported only when the cleaned placenta mask contains
-at least 10 pixels. Legacy wall/stem identifiers are not retained.
+`mesocarp_thickness_stats` and `mesocarp_wrinkle_index`. The separate Flesh-to-Placenta Area Ratio (`FPR`) retains its original definition
+(`A_flesh / PA`): its flesh mask excludes outer, PCP, and seed while retaining
+endocarp. It is reported only when the cleaned placenta mask contains at least
+10 pixels. The legacy `seed_density` attribute is the Seed-to-Cavity Area Ratio
+(`SCR`), not a count-per-area density. Legacy wall/stem identifiers are not retained.
 
 ## Notes
 

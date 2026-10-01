@@ -16,20 +16,20 @@ Báo cáo này tổng hợp chi tiết toàn bộ các phương pháp kỹ thu�
 ## 3. Advanced Phenotypic Trait Extraction Logic
 Hệ thống không sử dụng các phương pháp đo lườngBounding Box xấp xỉ truyền thống. Dưới đây là giải thích chi tiết về cơ sở Toán học đằng sau quá trình trích xuất từng chỉ số:
 
-*   **True Fruit Length (Chiều dài sinh lý thực):** 
+*   **Fruit Length — FL (Chiều dài quả):**
     Để đo chính xác chiều dài dọc theo độ cong tự nhiên của quả ớt, thuật toán tạo một bộ xương hình thái học (morphological skeleton) từ mặt nạ quả ớt. Các tọa độ trung tâm được chiết xuất và khớp (curve-fitting) với một phương trình đa thức bậc 3 ($x = ay^3 + by^2 + cy + d$). Chiều dài thực được tính chính xác bằng tích phân vi phân chiều dài cung (Arc Length Integral):
-    $$L_{fruit} = \int_{y_{min}}^{y_{max}} \sqrt{1 + \left(\frac{dx}{dy}\right)^2} dy$$
+    $$FL = \int_{y_{min}}^{y_{max}} \sqrt{1 + \left(\frac{dx}{dy}\right)^2} dy$$
 
-*   **Fruit Width (Chiều rộng):**
+*   **Fruit Width — FW (Chiều rộng quả):**
     Thay vì lấy chiều rộng Bounding Box, thuật toán cắt bỏ 5% diện tích nhiễu ở phần chóp và cuống. Sau đó, nó quét lặp qua từng hàng ngang (row) của mặt nạ, tính khoảng cách tuyệt đối giữa tọa độ x nhỏ nhất và lớn nhất để trả về giá trị chiều rộng Cực đại, Cực tiểu và Trung bình.
 
-*   **Pericarp Thickness (Độ dày cùi thịt):**
+*   **Mesocarp Thickness — MT (Độ dày trung quả bì):**
     Áp dụng phép biến đổi khoảng cách Euclidean Distance Transform (EDT) lên mặt nạ thịt quả tinh khiết (Flesh mask = Tổng quả trừ đi khoang rỗng, vỏ lồi, cuống). Thuật toán EDT gán cho mỗi pixel bên trong cùi thịt một giá trị bằng đúng khoảng cách ngắn nhất từ nó tới biên gần nhất. Độ dày tối đa và trung bình chính bằng đường kính của các vòng tròn nội tiếp này ($Thickness = 2 \times \text{EDT}$).
 
-*   **Flesh-to-Placenta Ratio (Tỷ lệ Thịt/Nhau thai):**
-    Một chỉ số nông học quan trọng để ước lượng khả năng phân bổ độ cay. Tính bằng thương số giữa Tổng diện tích cùi thịt tinh khiết ($A_{flesh}$) và Diện tích Nhau thai ($A_{placenta}$).
+*   **Flesh-to-Placenta Area Ratio — FPR (Tỷ lệ diện tích thịt/Nhau thai):**
+    Một chỉ số nông học quan trọng để ước lượng khả năng phân bổ độ cay. Tính bằng thương số giữa Tổng diện tích cùi thịt tinh khiết ($A_{flesh}$) và Placenta Area ($PA$), tức $FPR=A_{flesh}/PA$.
 
-*   **Seed-to-Cavity Ratio (Tỷ lệ lấp đầy hạt):**
+*   **Seed-to-Cavity Area Ratio — SCR (Tỷ lệ diện tích hạt/khoang):**
     Định lượng tỷ lệ không gian bị hạt chiếm dụng bên trong khoang rỗng trung tâm. Để khắc phục sai số vẽ viền của AI, mặt nạ khoang rỗng (mẫu số) được thuật toán cẩn thận tái tạo lại bằng phép hợp (Union): $M_{endocarp} \cup M_{placenta} \cup M_{seed}$.
 
 *   **Adaptive Marker-based Watershed (Đếm hạt dính chùm):**
@@ -38,10 +38,10 @@ Hệ thống không sử dụng các phương pháp đo lườngBounding Box x�
     2. Chạy biến đổi EDT trên cụm để tìm các đỉnh cục bộ (peaks).
     3. Thiết lập vòng lặp thu hẹp khoảng cách tối thiểu giữa các đỉnh (min\_distance) liên tục cho đến khi thuật toán Watershed tìm ra ĐÚNG số hạt kỳ vọng $E_i$.
 
-*   **Curvature Index (Độ cong):**
+*   **Fruit Curvature Index — FCI (Chỉ số độ cong quả):**
     Đo lường mức độ uốn cong của quả ớt bằng cách so sánh chiều dài đường thẳng Euclidean nối 2 điểm chóp/cuống (Straight Line) với chiều dài cung vi phân thực tế (Arc Length Integral). Chỉ số tiến về 1 đối với ớt thẳng và giảm dần với ớt cong gắt.
 
-*   **Asymmetry Index (Chỉ số bất đối xứng):**
+*   **Fruit Asymmetry Index — FAI (Chỉ số bất đối xứng quả):**
     Đánh giá độ phình lệch của quả ớt bằng cách chiếu các đường thẳng vuông góc với trục xương sống (spine) ở mọi điểm. Thuật toán tính tích phân tổng độ chênh lệch tuyệt đối về bề rộng giữa nửa trái ($W_L$) và nửa phải ($W_R$) chia cho tổng bề rộng.
 
 *   **Fruit Ripeness & Uniformity (Độ chín & Đồng đều màu):**

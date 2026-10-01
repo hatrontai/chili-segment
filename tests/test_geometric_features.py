@@ -18,6 +18,7 @@ from src.geometric_features import (
     segment_polyline_by_exact_chord,
 )
 from src.object import CLASS_NAMES, Chili, DEFAULT_DATASET_RATIO_MM_PER_PX, Fruits
+from src.traits import CANONICAL_TRAITS, CANONICAL_TRAIT_COLUMNS, canonical_trait_row
 
 
 class _NoDetectionModel:
@@ -46,6 +47,77 @@ class ScaleFallbackTests(unittest.TestCase):
 class TerminologyTests(unittest.TestCase):
     def test_class_two_is_pcp_without_changing_its_id(self):
         self.assertEqual(CLASS_NAMES[2], "PCP")
+
+    def test_canonical_trait_registry_has_expected_symbols_and_units(self):
+        expected = [
+            "FL", "FW_mean", "FW_min", "FW_max", "FA", "MA",
+            "MT_mean", "MT_min", "MT_max", "PA", "SA", "SC",
+            "FPR", "SCR", "FCI", "FAI", "MWI",
+        ]
+        self.assertEqual([item.symbol for item in CANONICAL_TRAITS], expected)
+        self.assertEqual(len(set(expected)), 17)
+        units = {item.symbol: item.unit for item in CANONICAL_TRAITS}
+        self.assertEqual(units["FL"], "mm")
+        self.assertEqual(units["FA"], "mm^2")
+        self.assertEqual(units["SC"], "count")
+        self.assertEqual(units["FCI"], "dimensionless")
+        self.assertEqual(len(CANONICAL_TRAIT_COLUMNS), 17)
+
+    def test_chili_exposes_all_canonical_values_without_removing_legacy_names(self):
+        chili = Chili.__new__(Chili)
+        chili.length_fruit = 10.0
+        chili.width_fruit = 4.0
+        chili.width_fruit_stats = {"min": 2.0, "max": 6.0, "avg": 4.0}
+        chili.area_fruit = 30.0
+        chili.mesocarp_area = 12.0
+        chili.mesocarp_thickness_stats = {
+            "min_mesocarp_thickness": 1.0,
+            "avg_mesocarp_thickness": 2.0,
+            "max_mesocarp_thickness": 3.0,
+        }
+        chili.placenta_area = 5.0
+        chili.seed_stats = {
+            "sum": 7.0, "min": 1.0, "max": 3.0, "avg": 2.0, "std": 0.5,
+        }
+        chili.number_seeds = 4
+        chili.flesh_placenta_ratio = 2.4
+        chili.seed_density = 0.25
+        chili.curvature_index = 0.9
+        chili.asymmetry_index = 0.1
+        chili.mesocarp_wrinkle_index = 0.05
+
+        values = chili.get_trait_values()
+        row = canonical_trait_row(chili)
+
+        self.assertEqual(list(values), [item.symbol for item in CANONICAL_TRAITS])
+        self.assertEqual(values["FL"], chili.length_fruit)
+        self.assertEqual(values["SA"], chili.seed_stats["sum"])
+        self.assertEqual(values["SCR"], chili.seed_density)
+        self.assertEqual(values["FCI"], chili.curvature_index)
+        self.assertEqual(list(row), list(CANONICAL_TRAIT_COLUMNS))
+
+    def test_scr_uses_seed_area_over_cavity_union(self):
+        chili = Chili.__new__(Chili)
+        chili.mask_seed = np.zeros((4, 4), dtype=np.uint8)
+        chili.mask_endocarp = np.zeros((4, 4), dtype=np.uint8)
+        chili.mask_placenta = np.zeros((4, 4), dtype=np.uint8)
+        chili.mask_seed[0, :2] = 255
+        chili.mask_endocarp[:2, :] = 255
+        chili.mask_placenta[2, :2] = 255
+        self.assertEqual(chili.get_seed_density(), 0.2)
+
+    def test_fci_is_chord_over_arc_and_one_means_straight(self):
+        chili = Chili.__new__(Chili)
+        chili.ratio = 0.1
+        chili.spine = {
+            "coeffs": np.array([0.0, 0.0, 0.0, 0.0]),
+            "y_min": 0,
+            "y_max": 10,
+        }
+        chili.length_fruit = 1.0
+        self.assertEqual(chili.get_curvature_index(), 1.0)
+        chili.length_fruit = 2.0
+        self.assertEqual(chili.get_curvature_index(), 0.5)
 
     def test_mesocarp_excludes_all_non_mesocarp_classes(self):
         shape = (60, 80)
