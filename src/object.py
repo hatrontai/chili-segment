@@ -833,13 +833,66 @@ class Chili(Fruits):
         self.position, self.img = self.get_img(self.bbox)
 
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
+        self.rotation = "none"
 
-        self.rseg = model_segment.predict(
+        # First pass prediction to find orientation
+        rseg = model_segment.predict(
             self.img,
             chili_method=chili_method,
             chili_threshold=chili_threshold,
             validation_mode=validation_mode,
         )
+        
+        # Determine rotation from PCP mask (class 2)
+        # Select the LARGEST PCP mask to avoid tiny false positive noise
+        best_pcp_mask = None
+        max_pcp_area = 0
+        for obj in rseg.get("masks_data", []):
+            if obj["class_id"] == 2:
+                area = np.count_nonzero(obj["mask"])
+                if area > max_pcp_area:
+                    max_pcp_area = area
+                    best_pcp_mask = obj["mask"]
+                
+        if best_pcp_mask is not None:
+            y_idx, x_idx = np.where(best_pcp_mask > 0)
+            cy = int(np.mean(y_idx))
+            cx = int(np.mean(x_idx))
+            
+            crop_height, crop_width = self.img.shape[:2]
+            
+            # Logic: Only rotate elongated chilies that are horizontal.
+            # 1.5 ratio ensures we ignore bell peppers (which are usually < 1.3)
+            # and we completely ignore already vertical chilies (so no 180 deg rotation).
+            pedicel_edge = "top" # default no rotation
+            
+            if crop_width > crop_height * 1.5:
+                # Elongated horizontally
+                if cx < crop_width / 2:
+                    pedicel_edge = "left"
+                else:
+                    pedicel_edge = "right"
+            
+            needs_rotation = pedicel_edge != "top"
+            if needs_rotation:
+                if pedicel_edge == "left":
+                    self.img = cv2.rotate(self.img, cv2.ROTATE_90_CLOCKWISE)
+                    self.rotation = "90_cw"
+                    self.width_bbox, self.height_bbox = self.height_bbox, self.width_bbox
+                elif pedicel_edge == "right":
+                    self.img = cv2.rotate(self.img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    self.rotation = "90_ccw"
+                    self.width_bbox, self.height_bbox = self.height_bbox, self.width_bbox
+                
+                # Re-run prediction on the rotated image
+                rseg = model_segment.predict(
+                    self.img,
+                    chili_method=chili_method,
+                    chili_threshold=chili_threshold,
+                    validation_mode=validation_mode,
+                )
+
+        self.rseg = rseg
         segment_stats = self.rseg.get("stats", {})
         if not segment_stats.get("is_valid_chili", False):
             reason = segment_stats.get("rejection_reason") or "invalid_chili_mask"
@@ -952,50 +1005,11 @@ class Chili(Fruits):
         return [x1, x2, y1, y2], fruit
 
     def get_width_height_bbox(self):
-        img = self.img
         bbox = self.bbox
         ratio = self.ratio
-        self.rotation = "none"
         #Bbox has format [x, y, w, h]
         width_bbox = round(bbox[2] * ratio, 2)
         height_bbox = round(bbox[3] * ratio, 2)
-
-        hsv_img = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
-        low_green = np.array([25, 20, 20])
-        high_green = np.array([90, 255, 255])
-        green_mask = cv2.inRange(hsv_img, low_green, high_green)
-
-        centroid_pedicel = find_centroid(green_mask)
-
-        if centroid_pedicel is not None:
-            cx, cy = centroid_pedicel
-            crop_height, crop_width = img.shape[:2]
-
-            # Normalize each distance by its corresponding image dimension.
-            # Raw pixel distances are not comparable for a rectangular crop:
-            # vertical distances belong to height, horizontal distances to width.
-            edge_distances = {
-                "top": cy / crop_height,
-                "bottom": (crop_height - cy) / crop_height,
-                "left": cx / crop_width,
-                "right": (crop_width - cx) / crop_width,
-            }
-            pedicel_edge = min(edge_distances, key=edge_distances.get)
-
-            if pedicel_edge == "bottom":
-                img = cv2.rotate(img, cv2.ROTATE_180)
-                self.rotation = "180"
-            elif pedicel_edge == "left":
-                img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-                self.rotation = "90_cw"
-                width_bbox, height_bbox = height_bbox, width_bbox
-            elif pedicel_edge == "right":
-                img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                self.rotation = "90_ccw"
-                width_bbox, height_bbox = height_bbox, width_bbox
-
-            self.img = img
-
         return width_bbox, height_bbox
 
     def get_polygons(self):
