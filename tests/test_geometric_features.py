@@ -52,7 +52,7 @@ class TerminologyTests(unittest.TestCase):
         expected = [
             "FL", "FW_mean", "FW_min", "FW_max", "FA", "MA",
             "MT_mean", "MT_min", "MT_max", "PA", "SA", "SC",
-            "FPR", "SCR", "FCI", "FAI", "MWI",
+            "MAF", "SCR", "FCI", "FAI", "MWI",
         ]
         self.assertEqual([item.symbol for item in CANONICAL_TRAITS], expected)
         self.assertEqual(len(set(expected)), 17)
@@ -81,6 +81,7 @@ class TerminologyTests(unittest.TestCase):
         }
         chili.number_seeds = 4
         chili.flesh_placenta_ratio = 2.4
+        chili.mesocarp_area_fraction = 0.6
         chili.seed_density = 0.25
         chili.curvature_index = 0.9
         chili.asymmetry_index = 0.1
@@ -92,9 +93,31 @@ class TerminologyTests(unittest.TestCase):
         self.assertEqual(list(values), [item.symbol for item in CANONICAL_TRAITS])
         self.assertEqual(values["FL"], chili.length_fruit)
         self.assertEqual(values["SA"], chili.seed_stats["sum"])
+        self.assertEqual(values["MAF"], 0.6)
+        self.assertNotIn("FPR", values)
         self.assertEqual(values["SCR"], chili.seed_density)
         self.assertEqual(values["FCI"], chili.curvature_index)
         self.assertEqual(list(row), list(CANONICAL_TRAIT_COLUMNS))
+
+    def test_maf_excludes_outer_and_pedicel_and_is_scale_independent(self):
+        chili = Chili.__new__(Chili)
+        chili.mask_chili = np.full((10, 10), 255, dtype=np.uint8)
+        chili.mask_outer = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_outer[0, :] = 255
+        chili.mask_pedicel = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_pedicel[1, :] = 255
+        chili.mask_mesocarp = np.zeros((10, 10), dtype=np.uint8)
+        chili.mask_mesocarp[2:6, :] = 255
+        for ratio in (0.1, 0.0001, 2.0):
+            chili.ratio = ratio
+            self.assertEqual(chili.get_mesocarp_area_fraction(), 0.5)
+        chili.mask_mesocarp[:] = 0
+        self.assertEqual(chili.get_mesocarp_area_fraction(), 0.0)
+        chili.mask_mesocarp[2:, :] = 255
+        self.assertEqual(chili.get_mesocarp_area_fraction(), 1.0)
+        chili.mask_chili[:] = 0
+        chili.mask_mesocarp[:] = 0
+        self.assertIsNone(chili.get_mesocarp_area_fraction())
 
     def test_scr_uses_seed_area_over_cavity_union(self):
         chili = Chili.__new__(Chili)

@@ -401,7 +401,7 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
         f"Fruit Area (FA): {_format_metric(chili.area_fruit)} {area_unit}",
         f"Mesocarp Area (MA): {_format_metric(chili.mesocarp_area)} {area_unit}",
         f"Placenta Area (PA): {_format_metric(chili.placenta_area)} {area_unit}",
-        f"FPR: {_format_metric(chili.flesh_placenta_ratio)}",
+        f"Mesocarp Area Fraction (MAF): {_format_metric(chili.mesocarp_area_fraction, 4)}",
         f"MT_min / MT_mean / MT_max: {_format_metric(thickness['min_mesocarp_thickness'])} / {_format_metric(thickness['avg_mesocarp_thickness'])} / {_format_metric(thickness['max_mesocarp_thickness'])} {unit}",
         f"Seed Count (SC): {_format_metric(chili.number_seeds)}",
         f"Total Seed Area (SA): {_format_metric(seeds['sum'])} {area_unit}",

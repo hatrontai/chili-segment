@@ -79,7 +79,7 @@ Các ngưỡng quan trọng đang được hard-code:
 - Hạt: số lượng, tổng/min/max/trung bình/độ lệch chuẩn diện tích; dùng watershed để tách cụm.
 - Màu: redness theo kênh `a*` của CIELAB và độ đồng đều màu.
 - Hình thái: Mesocarp Wrinkle Index (`MWI`), Fruit Curvature Index (`FCI`), Fruit Asymmetry Index (`FAI`).
-- Tỷ lệ: Flesh-to-Placenta Area Ratio (`FPR`) và Seed-to-Cavity Area Ratio (`SCR`).
+- Tỷ lệ: Mesocarp Area Fraction (`MAF = MA / FBA`) và Seed-to-Cavity Area Ratio (`SCR`).
 - Tỷ lệ quy đổi theo QR (`mm/pixel`) nếu đọc được.
 
 Web UI trả bảng đặc trưng đầy đủ. CLI xuất thêm thickness min/trung bình/max,

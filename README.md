@@ -196,7 +196,7 @@ included in `Fruits.items`, Web results, or CLI CSV output.
 | Placenta Area | `PA` | mm² | `placenta_area` |
 | Total Seed Area | `SA` | mm² | `seed_stats["sum"]` |
 | Seed Count | `SC` | count | `number_seeds` |
-| Flesh-to-Placenta Area Ratio | `FPR` | dimensionless | `flesh_placenta_ratio` |
+| Mesocarp Area Fraction | `MAF` | dimensionless | `mesocarp_area_fraction` |
 | Seed-to-Cavity Area Ratio | `SCR` | dimensionless | `seed_density` |
 | Fruit Curvature Index | `FCI` | dimensionless | `curvature_index` |
 | Fruit Asymmetry Index | `FAI` | dimensionless | `asymmetry_index` |
@@ -218,10 +218,16 @@ only the true outer mesocarp edge and excludes the pedicel region.
 
 The public runtime names use `mask_pcp`, `mask_pedicel`, `mask_placenta`, and
 `mask_mesocarp`. Feature outputs use `mesocarp_area`,
-`mesocarp_thickness_stats` and `mesocarp_wrinkle_index`. The separate Flesh-to-Placenta Area Ratio (`FPR`) retains its original definition
-(`A_flesh / PA`): its flesh mask excludes outer, PCP, and seed while retaining
-endocarp. It is reported only when the cleaned placenta mask contains at least
-10 pixels. The legacy `seed_density` attribute is the Seed-to-Cavity Area Ratio
+`mesocarp_thickness_stats` and `mesocarp_wrinkle_index`. Mesocarp Area Fraction
+(`MAF = MA / FBA`) measures the fraction of the fruit-body cross-section occupied
+by mesocarp. `FBA` excludes outer and pedicel; the mesocarp excludes endocarp,
+outer, PCP, and seed. MAF uses unrounded pixel areas, is independent of spatial
+scale, and is reported to four decimals in [0, 1]; an empty body yields `None`.
+It is a 2D area fraction, not mass density or a validated predictor of yield.
+MAF replaces FPR in the 17 primary Web/CLI traits. The old
+`flesh_placenta_ratio` attribute and method remain available to existing callers
+with their original meaning, but are absent from the canonical output.
+The legacy `seed_density` attribute is the Seed-to-Cavity Area Ratio
 (`SCR`), not a count-per-area density. Legacy wall/stem identifiers are not retained.
 
 ## Notes

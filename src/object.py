@@ -944,6 +944,7 @@ class Chili(Fruits):
 
         self.mesocarp_area = self.get_mesocarp_area()
         self.fruit_body_area = self.get_fruit_body_area()
+        self.mesocarp_area_fraction = self.get_mesocarp_area_fraction()
         self.placenta_area = self.get_placenta_area()
         self.mesocarp_thickness_stats = self.get_mesocarp_thickness()
 
@@ -1214,6 +1215,19 @@ class Chili(Fruits):
     def _get_clean_placenta_mask(self):
         mask = cv2.subtract(self.mask_placenta, self.mask_outer)
         return cv2.subtract(mask, self.mask_seed)
+
+    def get_mesocarp_area_fraction(self):
+        """Return MA/FBA from unrounded pixel areas; undefined for an empty body.
+
+        The body excludes outer and pedicel. The common area scale cancels,
+        avoiding precision loss from dividing rounded mm² measurements.
+        """
+        body_mask = cv2.subtract(self.mask_chili, self.mask_outer)
+        body_mask = cv2.subtract(body_mask, self.mask_pedicel)
+        body_pixels = int(np.count_nonzero(body_mask))
+        if body_pixels == 0:
+            return None
+        return round(float(np.count_nonzero(self.mask_mesocarp) / body_pixels), 4)
 
     def _get_flesh_mask(self):
         """Build the flesh mask without excluding the endocarp region."""

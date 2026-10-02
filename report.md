@@ -26,8 +26,8 @@ Hệ thống không sử dụng các phương pháp đo lườngBounding Box x�
 *   **Mesocarp Thickness — MT (Độ dày trung quả bì):**
     Áp dụng phép biến đổi khoảng cách Euclidean Distance Transform (EDT) lên mặt nạ thịt quả tinh khiết (Flesh mask = Tổng quả trừ đi khoang rỗng, vỏ lồi, cuống). Thuật toán EDT gán cho mỗi pixel bên trong cùi thịt một giá trị bằng đúng khoảng cách ngắn nhất từ nó tới biên gần nhất. Độ dày tối đa và trung bình chính bằng đường kính của các vòng tròn nội tiếp này ($Thickness = 2 \times \text{EDT}$).
 
-*   **Flesh-to-Placenta Area Ratio — FPR (Tỷ lệ diện tích thịt/Nhau thai):**
-    Một chỉ số nông học quan trọng để ước lượng khả năng phân bổ độ cay. Tính bằng thương số giữa Tổng diện tích cùi thịt tinh khiết ($A_{flesh}$) và Placenta Area ($PA$), tức $FPR=A_{flesh}/PA$.
+*   **Mesocarp Area Fraction — MAF (Tỷ lệ diện tích thịt quả):**
+    Tính bằng $MAF=MA/FBA$, trong đó $MA$ là diện tích mesocarp và $FBA$ là diện tích thân quả sau khi loại outer và cuống. Đây là tỷ lệ mặt cắt 2D được chiếm bởi thịt quả, dùng để mô tả cấu trúc tương đối giữa các mẫu. Chỉ số nằm trong [0, 1]; nếu thân quả rỗng thì trả về `None`. Chưa có kiểm chứng trực tiếp về dự đoán độ cay, năng suất hay khối lượng thịt.
 
 *   **Seed-to-Cavity Area Ratio — SCR (Tỷ lệ diện tích hạt/khoang):**
     Định lượng tỷ lệ không gian bị hạt chiếm dụng bên trong khoang rỗng trung tâm. Để khắc phục sai số vẽ viền của AI, mặt nạ khoang rỗng (mẫu số) được thuật toán cẩn thận tái tạo lại bằng phép hợp (Union): $M_{endocarp} \cup M_{placenta} \cup M_{seed}$.
