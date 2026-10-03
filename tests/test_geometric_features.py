@@ -11,7 +11,7 @@ from scipy import ndimage as ndi
 from src.geometric_features import (
     build_mesocarp_data,
     calculate_mesocarp_thickness_stats,
-    extract_outer_mesocarp_edge_runs,
+    extract_chili_body_contours,
     longest_backbone_skeleton,
     measure_skeleton_point,
     sample_skeleton_at_spacing,
@@ -59,7 +59,7 @@ class TerminologyTests(unittest.TestCase):
         units = {item.symbol: item.unit for item in CANONICAL_TRAITS}
         self.assertEqual(units["FL"], "mm")
         self.assertEqual(units["FA"], "mm^2")
-        self.assertEqual(units["SC"], "count")
+        self.assertEqual(units["SC"], "seed")
         self.assertEqual(units["FCI"], "dimensionless")
         self.assertEqual(len(CANONICAL_TRAIT_COLUMNS), 17)
 
@@ -397,24 +397,81 @@ class WrinkleTests(unittest.TestCase):
             max(segment["chord_px"] for segment in segments), 20.0 + 0.01
         )
 
-    def test_outer_runs_never_include_pedicel_exclusion(self):
-        mesocarp = np.zeros((80, 100), dtype=bool)
-        mesocarp[10:70, 10:90] = True
-        inner_reference = np.zeros_like(mesocarp)
-        inner_reference[20:60, 20:80] = True
-        outer_reference = ~mesocarp
-        pedicel_exclusion = np.zeros_like(mesocarp)
-        pedicel_exclusion[:18, 40:61] = True
-        data = {
-            "mesocarp": mesocarp,
-            "distance_to_inner": ndi.distance_transform_edt(~inner_reference),
-            "distance_to_outer": ndi.distance_transform_edt(~outer_reference),
-            "pedicel_exclusion": pedicel_exclusion,
-        }
+    def test_wrinkle_uses_chili_minus_pedicel_and_outer(self):
+        chili = Chili.__new__(Chili)
+        shape = (80, 100)
+        chili.mask_chili = np.zeros(shape, dtype=np.uint8)
+        chili.mask_chili[10:70, 10:90] = 255
+        chili.mask_pedicel = np.zeros(shape, dtype=np.uint8)
+        chili.mask_pedicel[:25, 40:61] = 255
+        chili.mask_outer = np.zeros(shape, dtype=np.uint8)
+        chili.mask_outer[:, 80:] = 255
+        chili.mask_endocarp = np.zeros(shape, dtype=np.uint8)
+        chili.mask_endocarp[30:60, 20:70] = 255
+        chili.mask_pcp = chili.mask_pedicel.copy()
+        chili.mask_seed = np.zeros(shape, dtype=np.uint8)
+        chili.mask_mesocarp = (
+            (chili.mask_chili > 0)
+            & ~(chili.mask_pedicel > 0)
+            & ~(chili.mask_outer > 0)
+            & ~(chili.mask_endocarp > 0)
+        ).astype(np.uint8) * 255
+        data = build_mesocarp_data(chili, 0.1)
+        expected = (chili.mask_chili > 0) & ~(
+            (chili.mask_pedicel > 0) | (chili.mask_outer > 0)
+        )
+        np.testing.assert_array_equal(data["wrinkle_mask"], expected)
+        runs = extract_chili_body_contours(data)
+        self.assertEqual(len(runs), 1)
+        xy = np.rint(runs[0]).astype(int)
+        self.assertTrue(expected[xy[:, 1], xy[:, 0]].all())
+        self.assertEqual(xy[:, 0].max(), 79)
+        # The boundary exposed by removing the pedicel is included.
+        self.assertTrue(np.any((xy[:, 1] == 25) & (xy[:, 0] == 50)))
+        np.testing.assert_array_equal(runs[0][0], runs[0][-1])
+        # Internal tissues and mesocarp geometry do not affect extraction.
+        data["mesocarp"][:] = False
+        data["distance_to_inner"][:] = 0
+        np.testing.assert_array_equal(extract_chili_body_contours(data)[0], runs[0])
 
-        for run in extract_outer_mesocarp_edge_runs(data):
+    def test_wrinkle_ignores_holes_and_keeps_external_components(self):
+        body = np.zeros((100, 100), dtype=bool)
+        body[10:60, 10:60] = True
+        body[20:40, 20:40] = False
+        body[70:90, 70:90] = True
+        runs = extract_chili_body_contours({"wrinkle_mask": body})
+        self.assertEqual(len(runs), 2)
+        for run in runs:
             xy = np.rint(run).astype(int)
-            self.assertFalse(bool(pedicel_exclusion[xy[:, 1], xy[:, 0]].any()))
+            self.assertFalse(np.any(
+                (xy[:, 0] >= 19) & (xy[:, 0] <= 40)
+                & (xy[:, 1] >= 19) & (xy[:, 1] <= 40)
+            ))
+
+    def test_closed_loop_preserves_full_chord_cuts_without_degenerate_tail(self):
+        angles = np.linspace(0, 2 * np.pi, 361)
+        contour = np.column_stack([20 * np.cos(angles), 20 * np.sin(angles)])
+        # Tail balancing on this closed loop previously erased a valid cut.
+        segments = segment_polyline_by_exact_chord(contour, 35.0)[2]
+        self.assertEqual(len(segments), 3)
+        self.assertAlmostEqual(sum(s["arc_px"] for s in segments),
+                               np.linalg.norm(np.diff(contour, axis=0), axis=1).sum())
+        for segment in segments[:-1]:
+            self.assertAlmostEqual(segment["chord_px"], 35.0, places=5)
+        for segment in segments:
+            self.assertGreater(segment["chord_px"], 1.0)
+            self.assertLessEqual(segment["chord_px"], 35.0 + 1e-6)
+            self.assertLess(segment["curvature_excess"], 3.0)
+
+    def test_closed_loop_smaller_than_threshold_has_valid_segments(self):
+        angles = np.linspace(0, 2 * np.pi, 361)
+        contour = np.column_stack([5 * np.cos(angles), 5 * np.sin(angles)])
+        segments = segment_polyline_by_exact_chord(contour, 50.0)[2]
+        self.assertEqual(len(segments), 3)
+        for segment in segments:
+            self.assertGreater(segment["chord_px"], 1.0)
+            self.assertLessEqual(segment["chord_px"], 50.0)
+            self.assertLess(segment["curvature_excess"], 1.0)
 
 
 if __name__ == "__main__":

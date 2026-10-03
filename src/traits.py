@@ -18,7 +18,7 @@ CANONICAL_TRAITS = (
     TraitDefinition("MT_max", "Maximum Mesocarp Thickness", "mm"),
     TraitDefinition("PA", "Placenta Area", "mm^2"),
     TraitDefinition("SA", "Total Seed Area", "mm^2"),
-    TraitDefinition("SC", "Seed Count", "Seed"),
+    TraitDefinition("SC", "Seed Count", "seed"),
     TraitDefinition("MAF", "Mesocarp Area Fraction", "dimensionless"),
     TraitDefinition("SCR", "Seed-to-Cavity Area Ratio", "dimensionless"),
     TraitDefinition("FCI", "Fruit Curvature Index", "dimensionless"),

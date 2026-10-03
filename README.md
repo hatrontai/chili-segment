@@ -19,7 +19,7 @@ The current implementation uses:
 - `src/segment.py`: YOLOv8 segmentation and mask-to-polygon post-processing
 - `src/object.py`: fruit/chili domain objects and feature calculations
 - `src/geometric_features.py`: mesocarp skeleton, thickness ray-casting, and
-  outer-mesocarp wrinkle geometry
+  fruit-body contour wrinkle geometry
 - `tests/test_geometric_features.py`: synthetic geometry and scale-fallback tests
 - `data/`: sample images and matching annotations
 - `weights/`: runtime ONNX detector and YOLOv8 segmentation weights
@@ -130,7 +130,7 @@ Useful flags:
 - `--det-crop-top`: top ROI offset (default `540` pixels)
 - `--weight_seg`: segmentation weight path
 - `--use_model_det` and `--name_model_det`: deprecated compatibility aliases
-- `--mesocarp-wrinkle-segment-threshold-mm`: outer-mesocarp chord threshold
+- `--mesocarp-wrinkle-segment-threshold-mm`: fruit-body contour chord threshold
   used for the wrinkle feature (default: `5.0` mm; independent of the red
   threshold)
 - `--save_csv`: write results to `./runs/predict/output.csv`
@@ -195,7 +195,7 @@ included in `Fruits.items`, Web results, or CLI CSV output.
 | Maximum Mesocarp Thickness | `MT_max` | mm | `mesocarp_thickness_stats["max_mesocarp_thickness"]` |
 | Placenta Area | `PA` | mm² | `placenta_area` |
 | Total Seed Area | `SA` | mm² | `seed_stats["sum"]` |
-| Seed Count | `SC` | count | `number_seeds` |
+| Seed Count | `SC` | seed | `number_seeds` |
 | Mesocarp Area Fraction | `MAF` | dimensionless | `mesocarp_area_fraction` |
 | Seed-to-Cavity Area Ratio | `SCR` | dimensionless | `seed_density` |
 | Fruit Curvature Index | `FCI` | dimensionless | `curvature_index` |
@@ -214,7 +214,13 @@ placenta.
 Mesocarp thickness is sampled every 1 mm along the longest skeleton backbone.
 Each sample uses the shortest valid straight line through the skeleton that
 crosses one inner and one outer mesocarp edge. The mesocarp wrinkle index uses
-only the true outer mesocarp edge and excludes the pedicel region.
+the external contours of `mask_chili - (mask_pedicel | mask_outer)`.
+Internal-hole contours are excluded; boundaries exposed by removing the pedicel
+and outer are included. Closed contours retain full-chord cuts and a final
+residual segment without tail rebalancing. A closed contour with no full-chord
+intersection is partitioned into at least three equal-arc segments, each with
+arc length no greater than the chord threshold. The default threshold remains
+5 mm and MWI remains the mean of `arc/chord - 1`.
 
 The public runtime names use `mask_pcp`, `mask_pedicel`, `mask_placenta`, and
 `mask_mesocarp`. Feature outputs use `mesocarp_area`,

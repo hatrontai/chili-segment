@@ -114,7 +114,7 @@ def parse_args():
         "--mesocarp-wrinkle-segment-threshold-mm",
         default=5.0,
         type=positive_float,
-        help="Outer-mesocarp chord threshold in mm used by the wrinkle feature",
+        help="Fruit-body contour chord threshold in mm used by the wrinkle feature",
     )
     parser.add_argument("--save_csv", action="store_true", help="save output result")
     parser.add_argument("--save_img", action="store_true", help="save image output")

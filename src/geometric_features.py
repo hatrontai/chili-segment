@@ -1,4 +1,4 @@
-"""Geometric mesocarp-thickness and outer-mesocarp wrinkle measurements.
+"""Geometric mesocarp-thickness and fruit-body contour wrinkle measurements.
 
 The implementation in this module is the runtime counterpart of
 ``wrinkle_thickness_experiment.ipynb``.  Distances are expressed in millimetres
@@ -203,7 +203,7 @@ def build_mesocarp_data(chili, ratio):
         "inner_edge": inner_edge,
         "outer_edge": outer_edge,
         "pedicel_exclusion": pedicel_exclusion,
-        "wrinkle_outer_mesocarp_edge": outer_edge & ~pedicel_exclusion,
+        "wrinkle_mask": chili_mask & ~(pedicel | outer),
         "signed_distance": signed_distance,
         "mesocarp_for_skeleton": mesocarp_for_skeleton,
         "skeleton": skeleton,
@@ -681,10 +681,15 @@ def split_true_runs(points, selected, closed):
     return runs
 
 
-def extract_outer_mesocarp_edge_runs(mesocarp_data, minimum_arc_px=5.0):
+def extract_chili_body_contours(mesocarp_data, minimum_arc_px=5.0):
+    """Return closed external contours of chili minus pedicel and outer.
+
+    Retain the boundaries created by subtracting pedicel/outer, but exclude
+    interior holes. Internal tissue masks do not select the wrinkle contour.
+    """
     contours, _ = cv2.findContours(
-        mesocarp_data["mesocarp"].astype(np.uint8) * 255,
-        cv2.RETR_LIST,
+        mesocarp_data["wrinkle_mask"].astype(np.uint8) * 255,
+        cv2.RETR_EXTERNAL,
         cv2.CHAIN_APPROX_NONE,
     )
     runs = []
@@ -692,35 +697,20 @@ def extract_outer_mesocarp_edge_runs(mesocarp_data, minimum_arc_px=5.0):
         points = contour[:, 0, :].astype(float)
         if len(points) < 3:
             continue
-        labels, outside_pedicel_flags = [], []
-        for x, y in points:
-            distance_inner = bilinear(
-                mesocarp_data["distance_to_inner"], x, y, np.inf
-            )
-            distance_outer = bilinear(
-                mesocarp_data["distance_to_outer"], x, y, np.inf
-            )
-            yi = int(
-                np.clip(round(y), 0, mesocarp_data["mesocarp"].shape[0] - 1)
-            )
-            xi = int(
-                np.clip(round(x), 0, mesocarp_data["mesocarp"].shape[1] - 1)
-            )
-            labels.append(distance_outer < distance_inner)
-            outside_pedicel_flags.append(
-                not mesocarp_data["pedicel_exclusion"][yi, xi]
-            )
-        selected = smooth_circular_labels(labels, window=7)
-        selected &= np.asarray(outside_pedicel_flags, dtype=bool)
-        for run in split_true_runs(points, selected, closed=True):
-            arc = np.linalg.norm(np.diff(run, axis=0), axis=1).sum()
-            if arc >= minimum_arc_px:
-                runs.append(run)
+        run = np.vstack([points, points[0]])
+        arc = np.linalg.norm(np.diff(run, axis=0), axis=1).sum()
+        if arc >= minimum_arc_px:
+            runs.append(run)
     return sorted(
         runs,
         key=lambda run: np.linalg.norm(np.diff(run, axis=0), axis=1).sum(),
         reverse=True,
     )
+
+
+def extract_outer_mesocarp_edge_runs(mesocarp_data, minimum_arc_px=5.0):
+    """Compatibility alias for the updated fruit-body contour extractor."""
+    return extract_chili_body_contours(mesocarp_data, minimum_arc_px)
 
 
 def polyline_geometry(points):
@@ -821,13 +811,25 @@ def segment_polyline_by_exact_chord(points, chord_px):
     total = cumulative[-1]
     if total <= 1e-10:
         return points, cumulative, []
+    closed = np.linalg.norm(points[0] - points[-1]) <= 1e-10
     cuts = [0.0]
     while True:
         next_s = first_circle_intersection(points, cumulative, cuts[-1], chord_px)
         if next_s is None or total - next_s <= 1e-8:
             break
         cuts.append(next_s)
-    if len(cuts) == 1:
+    if closed:
+        # Keep full-chord cuts: balancing a closed tail can replace a valid
+        # cut with an almost complete loop whose chord is nearly zero.
+        if len(cuts) == 1:
+            # A loop entirely within the target circle has no full chord.
+            # Partition by arc length so no segment spans the complete loop
+            # and every chord is bounded by its arc length <= chord_px.
+            count = max(3, int(math.ceil(total / chord_px)))
+            cuts = np.linspace(0.0, total, count + 1).tolist()
+        else:
+            cuts.append(total)
+    elif len(cuts) == 1:
         cuts.append(total)
     else:
         if total - cuts[-1] > 1e-8:
@@ -869,14 +871,14 @@ def calculate_mesocarp_wrinkle_index(
     ratio,
     mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
 ):
-    """Return mean outer-mesocarp curvature excess, excluding the pedicel."""
+    """Return mean contour curvature excess for chili minus pedicel/outer."""
     if ratio <= 0 or mesocarp_wrinkle_segment_threshold_mm <= 0:
         raise ValueError(
             "ratio and mesocarp_wrinkle_segment_threshold_mm must be greater than zero"
         )
     chord_px = mesocarp_wrinkle_segment_threshold_mm / ratio
     excesses = []
-    for run in extract_outer_mesocarp_edge_runs(mesocarp_data):
+    for run in extract_chili_body_contours(mesocarp_data):
         _, _, segments = segment_polyline_by_exact_chord(run, chord_px)
         excesses.extend(segment["curvature_excess"] for segment in segments)
     if not excesses:
