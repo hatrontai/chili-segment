@@ -1115,29 +1115,59 @@ class Chili(Fruits):
         }
 
     def get_width_fruit(self):
-        mask = cv2.subtract(self.mask_chili, self.mask_outer)
-        nonzero_y, nonzero_x = np.where(mask > 0)
-        if len(nonzero_y) == 0:
+        """Measure width at the eight interior scanlines of nine fruit sections."""
+        sections = self._measure_fruit_sections()
+        if len(sections) != 10 or any(
+            section["width_px"] is None for section in sections[1:-1]
+        ):
             return {"min": 0, "max": 0, "avg": 0}
-        y_min, y_max = np.min(nonzero_y), np.max(nonzero_y)
-        h = y_max - y_min
-        valid_y_min = y_min + int(0.05 * h)
-        valid_y_max = y_max - int(0.05 * h)
-        widths = []
-        for i in range(valid_y_min, valid_y_max + 1):
-            if i < 0 or i >= mask.shape[0]:
-                continue
-            row = mask[i]
-            nonzero_indices = np.where(row > 0)[0]
-            if len(nonzero_indices) > 0:
-                widths.append(nonzero_indices[-1] - nonzero_indices[0])
-        if not widths:
-            return {"min": 0, "max": 0, "avg": 0}
+        widths = [section["width_px"] for section in sections[1:-1]]
+        widths = np.asarray(widths, dtype=float)
         return {
-            "min": round(min(widths) * self.ratio, 2),
-            "max": round(max(widths) * self.ratio, 2),
-            "avg": round(np.mean(widths) * self.ratio, 2),
+            "min": round(float(np.min(widths)) * self.ratio, 2),
+            "max": round(float(np.max(widths)) * self.ratio, 2),
+            "avg": round(float(np.mean(widths)) * self.ratio, 2),
         }
+
+    def _measure_fruit_sections(self):
+        """Return ten horizontal silhouette chords and their midpoints.
+
+        This is the width protocol used for the longitudinal pepper images in
+        the project: divide the fruit-mask height into nine equal sections and
+        measure the eight interior horizontal chords. It avoids inferring a
+        curved centerline for broad or strongly lobed pepper masks.
+        """
+        mask = np.asarray(self.mask_chili) > 0
+        occupied_rows = np.flatnonzero(np.any(mask, axis=1))
+        if len(occupied_rows) < 2:
+            return []
+
+        section_rows = np.rint(
+            np.linspace(int(occupied_rows[0]), int(occupied_rows[-1]), 10)
+        ).astype(int)
+        if len(np.unique(section_rows)) != 10:
+            return []
+        sections = []
+        for y in section_rows:
+            xs = np.flatnonzero(mask[y])
+            if len(xs) == 0:
+                sections.append({
+                    "y": int(y),
+                    "left_x": None,
+                    "right_x": None,
+                    "center_x": None,
+                    "width_px": None,
+                })
+            else:
+                left_x, right_x = int(xs[0]), int(xs[-1])
+                sections.append({
+                    "y": int(y),
+                    "left_x": left_x,
+                    "right_x": right_x,
+                    "center_x": (left_x + right_x) / 2.0,
+                    "width_px": float(right_x - left_x),
+                })
+        return sections
 
     def get_length_fruit(self):
         if not hasattr(self, "spine") or self.spine is None:
@@ -1151,43 +1181,21 @@ class Chili(Fruits):
         return round(length_px * self.ratio, 2)
 
     def get_width_length_fruit_9seg(self):
-        mask = self.mask_chili
-        top = 0
-        bottom = 0
-        for i in range(len(mask)):
-            temp = mask[i]
-            if temp.sum() > 0:
-                if top == 0:
-                    top = i
-                bottom = i
-        d_pin = int((bottom - top) / 9)
-        pins = []
-        for i in range(9):
-            pins.append(top + i * d_pin)
-        pins.append(bottom)
-        points = []
-        length_fruit = 0
-        width_fruit = 0
-        for i in pins:
-            temp = mask[i]
-            max_j = -1
-            min_j = -1
-            for j in range(len(temp)):
-                if temp[j] > 0:
-                    if min_j == -1:
-                        min_j = j
-                    max_j = j
-            point = [i, min_j, max_j]
-            if i > top and i < bottom:
-                width_fruit += max_j - min_j
-            points.append(point)
-        width_fruit /= 8
-        for i in range(len(points)):
-            if i == 0:
-                continue
-            p1 = [points[i - 1][0], (points[i - 1][1] + points[i - 1][2]) / 2]
-            p2 = [points[i][0], (points[i][1] + points[i][2]) / 2]
-            length_fruit += math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+        sections = self._measure_fruit_sections()
+        if len(sections) != 10 or any(
+            section["center_x"] is None for section in sections
+        ):
+            return 0.0, 0.0
+
+        widths = [section["width_px"] for section in sections[1:-1]]
+        width_fruit = float(np.mean(widths))
+        length_fruit = sum(
+            math.hypot(
+                second["center_x"] - first["center_x"],
+                second["y"] - first["y"],
+            )
+            for first, second in zip(sections, sections[1:])
+        )
         ratio = self.ratio
         width_fruit = round(width_fruit * ratio, 2)
         length_fruit = round(length_fruit * ratio, 2)

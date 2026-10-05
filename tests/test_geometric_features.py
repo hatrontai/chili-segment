@@ -357,6 +357,49 @@ class ThicknessTests(unittest.TestCase):
         self.assertGreater(outer_radius, 44.0)
 
 
+class FruitWidthTests(unittest.TestCase):
+    def _chili(self, mask):
+        chili = Chili.__new__(Chili)
+        chili.mask_chili = mask
+        chili.ratio = 0.1
+        return chili
+
+    def test_nine_sections_use_eight_interior_width_chords(self):
+        mask = np.zeros((101, 80), dtype=np.uint8)
+        mask[10:91, 20:61] = 255
+        chili = self._chili(mask)
+
+        sections = chili._measure_fruit_sections()
+        stats = chili.get_width_fruit()
+        width_9seg, length_9seg = chili.get_width_length_fruit_9seg()
+
+        self.assertEqual(len(sections), 10)
+        self.assertEqual([s["width_px"] for s in sections[1:-1]], [40.0] * 8)
+        self.assertEqual(stats, {"min": 4.0, "max": 4.0, "avg": 4.0})
+        self.assertEqual(width_9seg, stats["avg"])
+        self.assertEqual(length_9seg, 8.0)
+
+    def test_empty_or_too_short_mask_returns_zero_widths(self):
+        empty = self._chili(np.zeros((20, 20), dtype=np.uint8))
+        short_mask = np.zeros((20, 20), dtype=np.uint8)
+        short_mask[5:10, 5:15] = 255
+        short = self._chili(short_mask)
+
+        self.assertEqual(empty.get_width_fruit(), {"min": 0, "max": 0, "avg": 0})
+        self.assertEqual(empty.get_width_length_fruit_9seg(), (0.0, 0.0))
+        self.assertEqual(short.get_width_fruit(), {"min": 0, "max": 0, "avg": 0})
+        self.assertEqual(short.get_width_length_fruit_9seg(), (0.0, 0.0))
+
+    def test_missing_interior_scanline_does_not_return_partial_width(self):
+        mask = np.zeros((101, 80), dtype=np.uint8)
+        mask[10:91, 20:61] = 255
+        mask[46, :] = 0
+        chili = self._chili(mask)
+
+        self.assertEqual(chili.get_width_fruit(), {"min": 0, "max": 0, "avg": 0})
+        self.assertEqual(chili.get_width_length_fruit_9seg(), (0.0, 0.0))
+
+
 class WrinkleTests(unittest.TestCase):
     def test_straight_is_zero_and_zigzag_is_larger(self):
         straight = np.column_stack([np.linspace(0, 100, 101), np.zeros(101)])

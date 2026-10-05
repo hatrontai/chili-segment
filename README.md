@@ -204,6 +204,15 @@ included in `Fruits.items`, Web results, or CLI CSV output.
 
 Call `Chili.get_trait_values()` to obtain these values keyed by symbol. Web and CLI CSV outputs use the same human-readable columns, such as `Fruit Length (FL)` and `Seed-to-Cavity Area Ratio (SCR)`. Legacy attributes remain available for compatibility. Bounding boxes, 9-segment measurements, individual-seed statistics, color metrics, and scale metadata remain as extended output fields.
 
+Fruit width follows the longitudinal-slice protocol used by this project's
+pepper phenotyping method: divide the segmented fruit mask height into nine
+equal sections using ten horizontal scanlines, measure the eight interior
+chords from the leftmost to rightmost fruit-mask pixel, and report their mean
+as width. `FW_min` and `FW_max` are the minimum and maximum of those same eight
+chords. The spine-derived curve remains used for fruit length and curvature;
+it is not used to invent a local width direction for broad or lobed pepper
+silhouettes.
+
 If a QR code is detected, its 10 mm side is used to estimate the
 pixel-to-real-world scale. If QR decoding fails, runtime continues with the
 documented dataset-mean estimate `0.094305839 mm/pixel`; Web and CSV output mark
