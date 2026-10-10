@@ -34,6 +34,8 @@ class SegmentModel:
             raise ValueError("Unsupported model_name. Please set model_name to 'yolo'.")
 
         self.device = device
+        if isinstance(imgsz, bool) or not isinstance(imgsz, int) or imgsz <= 0:
+            raise ValueError("imgsz must be a positive integer")
         self.imgsz = imgsz
         self.chili_method = self._validate_chili_method(chili_method)
         self.chili_threshold = int(chili_threshold)
@@ -313,6 +315,7 @@ class SegmentModel:
 
         return {
             'raw_results': results,
+            'yolo_chili_candidates': yolo_chili_candidates,
             'polygons': processed_polygons,
             'detections': detection_details,
             'masks_data': masks_data,
@@ -329,6 +332,7 @@ class SegmentModel:
                 'has_any_segment_mask': has_any_segment_mask,
                 'has_yolo_chili': has_yolo_chili,
                 'mask_source': selected_chili_source,
+                'chili_confidence_kind': 'model_probability' if selected_chili_source == 'yolo' else 'synthetic_presence_flag',
                 'is_valid_chili': is_valid_chili,
                 'rejection_reason': rejection_reason,
             },

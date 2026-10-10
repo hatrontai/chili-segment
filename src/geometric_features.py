@@ -619,9 +619,13 @@ def filter_clean_thickness_points(
     ].reset_index(drop=True)
 
 
-def calculate_mesocarp_thickness_stats(mesocarp_data, ratio):
+def calculate_mesocarp_thickness_stats(mesocarp_data, ratio, diagnostics=None):
     """Return min/average/max mesocarp thickness from accepted 1 mm samples."""
     measured = measure_mesocarp_thickness(mesocarp_data, ratio)
+    if diagnostics is not None:
+        diagnostics.update(sampled_count=len(measured), valid_count=0,
+                           clean_count=0, used_count=0, used_prefilter_samples=False,
+                           status="unavailable")
     if measured.empty or "measurement_status" not in measured:
         return {
             "min_mesocarp_thickness": None,
@@ -638,6 +642,11 @@ def calculate_mesocarp_thickness_stats(mesocarp_data, ratio):
     clean = filter_clean_thickness_points(valid, mesocarp_data, ratio)
     minimum_clean_count = max(20, int(0.30 * len(valid)))
     used = clean if len(clean) >= minimum_clean_count else valid
+    if diagnostics is not None:
+        diagnostics.update(valid_count=len(valid), clean_count=len(clean),
+                           used_count=len(used), minimum_clean_count=minimum_clean_count,
+                           used_prefilter_samples=len(clean) < minimum_clean_count,
+                           status="prefilter_fallback" if len(clean) < minimum_clean_count else "measured")
     return {
         "min_mesocarp_thickness": round(float(used.thickness_mm.min()), 2),
         "avg_mesocarp_thickness": round(float(used.thickness_mm.mean()), 2),
@@ -870,6 +879,7 @@ def calculate_mesocarp_wrinkle_index(
     mesocarp_data,
     ratio,
     mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
+    diagnostics=None,
 ):
     """Return mean contour curvature excess for chili minus pedicel/outer."""
     if ratio <= 0 or mesocarp_wrinkle_segment_threshold_mm <= 0:
@@ -878,9 +888,15 @@ def calculate_mesocarp_wrinkle_index(
         )
     chord_px = mesocarp_wrinkle_segment_threshold_mm / ratio
     excesses = []
-    for run in extract_chili_body_contours(mesocarp_data):
+    runs = extract_chili_body_contours(mesocarp_data)
+    for run in runs:
         _, _, segments = segment_polyline_by_exact_chord(run, chord_px)
         excesses.extend(segment["curvature_excess"] for segment in segments)
+    if diagnostics is not None:
+        diagnostics.update(contour_count=len(runs), segment_count=len(excesses),
+                           tau_mm=float(mesocarp_wrinkle_segment_threshold_mm),
+                           status="measured" if excesses else "unavailable",
+                           maximum_segment_excess=float(max(excesses)) if excesses else None)
     if not excesses:
         return None
     return round(float(np.mean(excesses)), 5)

@@ -705,22 +705,28 @@ class Fruits(object):
             print(f"Warning: {self.scale_warning}")
 
         self.image = Image.open(path)
-        self.width_img, self.height_img = self.image.size
+        self.stored_image_size = self.image.size
+        # QR, detection and crops use OpenCV's EXIF-aware decoded frame. PIL's
+        # stored JPEG dimensions can be swapped, so metadata must use that frame.
+        self.width_img, self.height_img = getattr(self, "decoded_image_size", self.image.size)
 
         # Model detections are trusted. Threshold detections require at least
         # one segmentation mask, without forcing any particular class.
         candidate_boxes = sorted(self.get_bbox_chili(), key=lambda box: box[0])
+        self.candidate_diagnostics = {"detected_count": len(candidate_boxes), "accepted_count": 0, "rejected": []}
         self.box_cut = []
         self.items = []
         for bbox in candidate_boxes:
             try:
                 chili = self.get_item(len(self.items), bbox=bbox)
-            except InvalidChiliCandidate:
+            except InvalidChiliCandidate as exc:
+                self.candidate_diagnostics["rejected"].append({"bbox": [int(v) for v in bbox], "reason": str(exc)})
                 continue
             self.box_cut.append(bbox)
             self.items.append(chili)
 
         self.num_fruit = len(self.items)
+        self.candidate_diagnostics["accepted_count"] = self.num_fruit
 
     def get_item(self, index, bbox=None):
         if bbox is None:
@@ -769,6 +775,9 @@ class Fruits(object):
     def qr_code(self):
         path = self.path
         org = korean_imread(path)
+        if org is None:
+            raise ValueError(f"Unreadable input image: {path}")
+        self.decoded_image_size = (org.shape[1], org.shape[0])
         gray = cv2.cvtColor(org, cv2.COLOR_BGR2GRAY)
         H, W = gray.shape
         if decode is None:
@@ -829,6 +838,9 @@ class Chili(Fruits):
             mesocarp_wrinkle_segment_threshold_mm
         )
         self._mesocarp_feature_data = None
+        self._thickness_diagnostics = {}
+        self._wrinkle_diagnostics = {}
+        self._pedicel_diagnostics = {"status": "not_attempted"}
         self.name = self.get_name()
         self.position, self.img = self.get_img(self.bbox)
 
@@ -965,6 +977,7 @@ class Chili(Fruits):
     def _separate_pedicel_and_placenta(self):
         mask_pcp = self.mask_pcp
         if mask_pcp.sum() == 0:
+            self._pedicel_diagnostics = {"status": "missing_pcp"}
             return np.zeros_like(mask_pcp), mask_pcp.copy()
         pcp_total_px = int((mask_pcp > 0).sum())
         mask_pedicel = np.zeros_like(mask_pcp)
@@ -980,18 +993,21 @@ class Chili(Fruits):
             log1,
         ) = run_case1_armpit(self, pcp_total_px)
         if case1_ok:
+            self._pedicel_diagnostics = {"status": "separated", "method": "armpit", "detail": str(log1)}
             return pedicel_mask1, placenta_mask1
         pedicel_mask2, placenta_mask2, pa2, pb2, cnt2, is_in2, case2_ok, log2 = (
             run_case2_geo_original(self, pcp_total_px)
         )
         if case2_ok:
+            self._pedicel_diagnostics = {"status": "separated", "method": "geometry", "primary_detail": str(log1), "detail": str(log2)}
             return pedicel_mask2, placenta_mask2
+        self._pedicel_diagnostics = {"status": "failed", "primary_detail": str(log1), "fallback_detail": str(log2), "legacy_output": "empty_pedicel_full_pcp_placenta"}
         return mask_pedicel, mask_placenta
 
     def get_img(self, bbox):
         img = cv2.imread(self.path)
         if img is None:
-            return 0
+            raise ValueError(f"Unreadable input image: {self.path}")
         H, W, _ = img.shape
         img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         x, y, w, h = bbox
@@ -1198,7 +1214,7 @@ class Chili(Fruits):
 
     def get_mesocarp_thickness(self):
         return calculate_mesocarp_thickness_stats(
-            self._get_mesocarp_feature_data(), self.ratio
+            self._get_mesocarp_feature_data(), self.ratio, self._thickness_diagnostics
         )
 
     def _get_mesocarp_feature_data(self):
@@ -1427,12 +1443,63 @@ class Chili(Fruits):
             else float(mesocarp_wrinkle_segment_threshold_mm)
         )
         return calculate_mesocarp_wrinkle_index(
-            self._get_mesocarp_feature_data(), self.ratio, threshold
+            self._get_mesocarp_feature_data(), self.ratio, threshold,
+            self._wrinkle_diagnostics if mesocarp_wrinkle_segment_threshold_mm is None else None,
         )
 
     def get_trait_values(self):
         """Return the 17 canonical phenotypic traits keyed by their symbols."""
         return trait_values_by_symbol(self)
+
+    def get_measurement_diagnostics(self):
+        """Describe availability/fallbacks without changing trait values.
+
+        'measured' means a computation succeeded, not biological validation.
+        Empty optional masks may be genuine absence or segmentation failure.
+        """
+        import copy
+        masks = {name: int(np.count_nonzero(getattr(self, 'mask_' + name)))
+                 for name in ('chili', 'outer', 'pcp', 'endocarp', 'seed', 'mesocarp', 'pedicel', 'placenta')}
+        values = self.get_trait_values()
+        traits = {symbol: {"status": "unavailable" if value is None else "computed", "reasons": []}
+                  for symbol, value in values.items()}
+        def flag(symbols, reason, status="review"):
+            for symbol in symbols:
+                traits[symbol]["reasons"].append(reason)
+                if traits[symbol]["status"] != "unavailable":
+                    traits[symbol]["status"] = status
+        if self.scale_source == "dataset_mean_fallback":
+            flag(('FL', 'FW_mean', 'FW_min', 'FW_max', 'FA', 'MA', 'MT_mean', 'MT_min', 'MT_max', 'PA', 'SA', 'FCI', 'MWI'), 'dataset_mean_scale_fallback')
+        if self.spine is None:
+            flag(('FL', 'FCI', 'FAI'), 'missing_spine_legacy_zero', 'unavailable')
+        if not np.any(cv2.subtract(self.mask_chili, self.mask_outer)):
+            flag(('FW_mean', 'FW_min', 'FW_max'), 'empty_width_mask_legacy_zero', 'unavailable')
+        if self._pedicel_diagnostics.get('status') in {'failed', 'missing_pcp'}:
+            flag(('PA', 'MAF', 'SCR', 'MWI', 'MT_mean', 'MT_min', 'MT_max'), 'pedicel_separation_' + self._pedicel_diagnostics['status'])
+        if self._thickness_diagnostics.get('used_prefilter_samples'):
+            flag(('MT_mean', 'MT_min', 'MT_max'), 'thickness_prefilter_fallback')
+        if self.mesocarp_thickness_stats['avg_mesocarp_thickness'] is None:
+            flag(('MT_mean', 'MT_min', 'MT_max'), 'no_valid_boundary_ray_pairs', 'unavailable')
+        if self.mesocarp_wrinkle_index is None:
+            flag(('MWI',), 'no_valid_contour_segments', 'unavailable')
+        if self.mesocarp_area_fraction is None:
+            flag(('MAF',), 'empty_fruit_body_mask', 'unavailable')
+        if not masks['endocarp']:
+            flag(('MA', 'MAF', 'MT_mean', 'MT_min', 'MT_max', 'SCR'), 'empty_endocarp_mask')
+        if not masks['mesocarp']:
+            flag(('MA', 'MAF'), 'empty_mesocarp_mask')
+        if self.number_seeds == 0:
+            flag(('SC', 'SA', 'SCR'), 'no_retained_seed_regions_not_proof_of_seed_absence')
+        pure = self._get_flesh_mask()
+        return copy.deepcopy({"scale_source": self.scale_source,
+            "rotation": self.rotation, "mask_source": self.rseg.get('stats', {}).get('mask_source'),
+            "mask_pixel_counts": masks, "pedicel": self._pedicel_diagnostics,
+            "spine": {"status": 'computed' if self.spine is not None else 'unavailable'},
+            "thickness": self._thickness_diagnostics, "wrinkle": self._wrinkle_diagnostics,
+            "traits": traits, "color": {"status": 'computed' if np.any(pure) else 'unavailable',
+                "pixel_count": int(np.count_nonzero(pure)), "includes_endocarp": True,
+                "higher_sd_means_less_uniform": True},
+            "interpretation": 'Computational availability only; trait accuracy is not validated.'})
 
     def get_hist(self):
         #Preserve the original red-channel histogram visualization helper.

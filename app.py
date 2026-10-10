@@ -1,6 +1,9 @@
 import math
 import os
 import time
+import tempfile
+import zipfile
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -19,7 +22,8 @@ from src.detect import (
 )
 from src.object import CLASS_COLORS, CLASS_NAMES, Fruits, draw_full_mask_with_labels
 from src.segment import SegmentModel
-from src.traits import CANONICAL_TRAIT_COLUMNS, canonical_trait_row
+from src.pipeline import (PipelineConfig, build_models, run_image, feature_columns,
+                          feature_row, create_manifest, image_diagnostics, write_exports)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -46,24 +50,7 @@ SAMPLE_IMAGES = sorted(
     if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
 ) if DATA_DIR.exists() else []
 
-FEATURE_COLUMNS = [
-    "ID",
-    "Name",
-] + list(CANONICAL_TRAIT_COLUMNS) + [
-    "Width BBox",
-    "Height BBox",
-    "Width (9 segments)",
-    "Length (9 segments)",
-    "Fruit Body Area",
-    "Seed Area Min",
-    "Seed Area Max",
-    "Seed Area Average",
-    "Seed Area Std",
-    "Redness",
-    "Color Uniformity",
-    "Scale Ratio",
-    "Scale Source",
-]
+FEATURE_COLUMNS = feature_columns()
 
 EXTRA_MASKS = {
     "pedicel": (255, 165, 0),
@@ -89,29 +76,22 @@ def _color_legend_html(items):
     )
 
 
-if not WEIGHT_MODEL_DETECT.exists():
-    raise FileNotFoundError(
-        f"YOLOv7 ONNX detection weight not found: {WEIGHT_MODEL_DETECT}"
-    )
-if not WEIGHT_MODEL_SEGMENT.exists():
-    raise FileNotFoundError(
-        f"Segmentation weight not found: {WEIGHT_MODEL_SEGMENT}"
-    )
+@lru_cache(maxsize=4)
+def _get_models(config):
+    # Loading on first use lets configuration and UI be inspected without weights.
+    return build_models(config)
 
-print(f"Loading pipeline models on device {DEVICE}...")
-model_detect_onnx = DetectModel(
-    backend="yolov7_onnx",
-    weight_path=WEIGHT_MODEL_DETECT,
-)
-model_detect_threshold = DetectModel(backend="threshold")
-# Backward-compatible default used by extract_chili_features().
-model_detect = model_detect_onnx
-model_segment = SegmentModel(
-    weight_path=str(WEIGHT_MODEL_SEGMENT),
-    model_name="yolo",
-    device=DEVICE,
-)
-print("Pipeline models loaded successfully.")
+
+def _runtime_config(detector_backend="yolov7_onnx", chili_method="threshold",
+                    chili_threshold=16, tau=5.0, seg_imgsz=640, crop_top=540,
+                    det_conf=0.70, det_iou=0.30, det_containment=0.60):
+    return PipelineConfig(
+        detector_backend=detector_backend, weight_det=str(WEIGHT_MODEL_DETECT),
+        weight_seg=str(WEIGHT_MODEL_SEGMENT), device=str(DEVICE),
+        chili_method=chili_method, chili_threshold=int(chili_threshold),
+        wrinkle_tau_mm=float(tau), seg_imgsz=int(seg_imgsz), det_crop_top=int(crop_top),
+        det_conf=float(det_conf), det_iou=float(det_iou), det_containment=float(det_containment),
+    )
 
 
 def _resolve_input_path(upload_path, sample_name):
@@ -185,11 +165,11 @@ def _draw_detection_boxes(image_rgb, fruits):
     return output
 
 
-def _draw_roi_guide(image_rgb):
+def _draw_roi_guide(image_rgb, crop_top=DETECTION_CROP_TOP):
     """Visualize the fixed top crop performed by DetectModel.predict()."""
     output = image_rgb.copy()
     height, width = output.shape[:2]
-    crop_y = min(DETECTION_CROP_TOP, height)
+    crop_y = min(crop_top, height)
 
     if crop_y > 0:
         dark = output[:crop_y].astype(np.float32) * 0.25
@@ -199,7 +179,7 @@ def _draw_roi_guide(image_rgb):
         cv2.line(output, (0, crop_y), (width - 1, crop_y), (255, 220, 0), 5)
         cv2.putText(
             output,
-            f"Detection ROI starts at y={DETECTION_CROP_TOP}",
+            f"Detection ROI starts at y={crop_top}",
             (20, min(height - 15, crop_y + 45)),
             cv2.FONT_HERSHEY_SIMPLEX,
             1.0,
@@ -605,40 +585,15 @@ def _update_comparison_layout(columns):
 
 
 def _features_dataframe(fruits):
-    rows = []
-    for chili in fruits.items:
-        seeds = chili.seed_stats
-        row = {
-            "ID": chili.id,
-            "Name": chili.name,
-            "Width BBox": chili.width_bbox,
-            "Height BBox": chili.height_bbox,
-            "Width (9 segments)": chili.width_fruit_9seg,
-            "Length (9 segments)": chili.length_fruit_9seg,
-            "Fruit Body Area": chili.fruit_body_area,
-            "Seed Area Min": seeds["min"],
-            "Seed Area Max": seeds["max"],
-            "Seed Area Average": seeds["avg"],
-            "Seed Area Std": seeds["std"],
-            "Redness": chili.redness,
-            "Color Uniformity": chili.color_uniformity,
-            "Scale Ratio": chili.ratio,
-            "Scale Source": chili.scale_source,
-        }
-        row.update(canonical_trait_row(chili))
-        rows.append(row)
-    return pd.DataFrame(rows, columns=FEATURE_COLUMNS)
+    return pd.DataFrame([feature_row(chili) for chili in fruits.items], columns=FEATURE_COLUMNS)
+
 
 def extract_chili_features(image_path):
     """Backward-compatible single-output function used by the original app."""
     if image_path is None or not Path(image_path).exists():
         return pd.DataFrame(columns=FEATURE_COLUMNS)
-    fruits = Fruits(
-        str(image_path),
-        model_detect=model_detect_onnx,
-        model_segment=model_segment,
-    )
-    return _features_dataframe(fruits)
+    config = _runtime_config()
+    return _features_dataframe(run_image(image_path, config, _get_models(config)))
 
 
 def run_pipeline(
@@ -648,44 +603,35 @@ def run_pipeline(
     chili_method,
     chili_threshold,
     mesocarp_wrinkle_segment_threshold_mm=5.0,
+    seg_imgsz=640, crop_top=540, det_conf=0.70, det_iou=0.30, det_containment=0.60,
+    _with_exports=False,
 ):
+    config = _runtime_config(detector_backend, chili_method, chili_threshold,
+                             mesocarp_wrinkle_segment_threshold_mm, seg_imgsz, crop_top,
+                             det_conf, det_iou, det_containment)
     image_path, source = _resolve_input_path(upload_path, sample_name)
     image_rgb = _read_rgb(image_path)
     height, width = image_rgb.shape[:2]
 
-    if height <= DETECTION_CROP_TOP:
+    if height <= config.det_crop_top:
         raise gr.Error(
-            f"Ảnh chỉ cao {height}px, nhưng detector hiện bỏ {DETECTION_CROP_TOP}px "
-            "ở phía trên. Hãy dùng ảnh đúng bố cục dataset hoặc điều chỉnh DetectModel."
+            f"Ảnh chỉ cao {height}px, nhưng detector hiện bỏ {config.det_crop_top}px "
+            "ở phía trên. Hãy dùng ảnh đúng bố cục dataset hoặc điều chỉnh crop phía trên."
         )
 
-    selected_detector = (
-        model_detect_onnx
-        if detector_backend == "yolov7_onnx"
-        else model_detect_threshold
-    )
-
+    models = _get_models(config)
     started_at = time.perf_counter()
-    fruits = Fruits(
-        str(image_path),
-        model_detect=selected_detector,
-        model_segment=model_segment,
-        chili_method=chili_method,
-        chili_threshold=chili_threshold,
-        mesocarp_wrinkle_segment_threshold_mm=(
-            mesocarp_wrinkle_segment_threshold_mm
-        ),
-    )
+    fruits = run_image(image_path, config, models)
     elapsed = time.perf_counter() - started_at
 
-    detection_roi = image_rgb[DETECTION_CROP_TOP:].copy()
+    detection_roi = image_rgb[config.det_crop_top:].copy()
     threshold_mask = get_detection_mask(
         detection_roi,
         threshold=22,
         use_closing=True,
         use_contour=False,
     )
-    roi_guide = _draw_roi_guide(image_rgb)
+    roi_guide = _draw_roi_guide(image_rgb, config.det_crop_top)
     detection_image = _draw_detection_boxes(image_rgb, fruits)
     crop_gallery = _build_crop_gallery(fruits, image_rgb)
     segmentation_gallery = _build_segmentation_gallery(fruits)
@@ -706,9 +652,10 @@ def run_pipeline(
         f"- **Detector:** `{detector_backend}`\n"
         f"- **Detection weight:** `{WEIGHT_MODEL_DETECT.name if detector_backend == 'yolov7_onnx' else 'threshold'}`\n"
         f"- **Detection conf/IoU/IoM:** "
-        f"`{DEFAULT_CONFIDENCE:.2f}/{DEFAULT_IOU:.2f}/{DEFAULT_CONTAINMENT:.2f}`\n"
+        f"`{config.det_conf:.2f}/{config.det_iou:.2f}/{config.det_containment:.2f}`\n"
         f"- **Tỷ lệ hiệu chỉnh:** {ratio_note}\n"
         f"- **Segmentation weight:** `{WEIGHT_MODEL_SEGMENT.name}`\n"
+        f"- **Segmentation imgsz:** `{config.seg_imgsz}`; **crop phía trên:** `{config.det_crop_top}` px\n"
         f"- **Class chili:** {chili_method_note}\n"
         f"- **Ngưỡng mesocarp wrinkle:** {float(mesocarp_wrinkle_segment_threshold_mm):g} mm\n"
         f"- **Thiết bị:** `{DEVICE}`\n"
@@ -723,7 +670,7 @@ def run_pipeline(
     if fruits.scale_warning:
         summary += f"\n\n> ⚠️ {fruits.scale_warning}"
 
-    return (
+    outputs = (
         summary,
         image_rgb,
         roi_guide,
@@ -737,6 +684,23 @@ def run_pipeline(
         comparison_gallery,
         features,
     )
+    if not _with_exports:
+        return outputs
+    manifest = create_manifest(config, [image_path])
+    entry = image_diagnostics(fruits)
+    entry["elapsed_seconds"] = elapsed
+    manifest["images"].append(entry)
+    output_dir = Path(tempfile.mkdtemp(prefix="chili_web_"))
+    csv_path, json_path = write_exports(output_dir, features, manifest)
+    bundle = output_dir / "chili_results.zip"
+    with zipfile.ZipFile(bundle, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in (csv_path, json_path):
+            archive.write(path, path.name)
+    return outputs + (str(bundle),)
+
+
+def run_pipeline_with_exports(*args):
+    return run_pipeline(*args, _with_exports=True)
 
 
 def build_demo():
@@ -788,6 +752,13 @@ def build_demo():
                 info="Tham số hình học riêng, không liên quan threshold độ đỏ.",
             )
 
+        with gr.Accordion("Cấu hình inference", open=False):
+            seg_imgsz_input = gr.Number(value=640, precision=0, minimum=1, label="Segmentation imgsz")
+            crop_top_input = gr.Number(value=540, precision=0, minimum=0, label="Bỏ vùng phía trên (px)")
+            det_conf_input = gr.Slider(0, 1, value=0.70, step=0.01, label="Detector confidence")
+            det_iou_input = gr.Slider(0, 1, value=0.30, step=0.01, label="Detector IoU")
+            det_containment_input = gr.Slider(0, 1, value=0.60, step=0.01, label="Detector IoM")
+        export_output = gr.File(label="Tải CSV và manifest/diagnostics")
         run_button = gr.Button("Chạy toàn bộ pipeline", variant="primary")
         summary_output = gr.Markdown()
 
@@ -921,7 +892,7 @@ def build_demo():
                 )
 
         run_button.click(
-            fn=run_pipeline,
+            fn=run_pipeline_with_exports,
             inputs=[
                 upload_input,
                 sample_input,
@@ -929,6 +900,7 @@ def build_demo():
                 chili_method_input,
                 chili_threshold_input,
                 mesocarp_wrinkle_threshold_input,
+                seg_imgsz_input, crop_top_input, det_conf_input, det_iou_input, det_containment_input,
             ],
             outputs=[
                 summary_output,
@@ -943,6 +915,7 @@ def build_demo():
                 full_segmentation_output,
                 comparison_output,
                 feature_output,
+                export_output,
             ],
         )
 

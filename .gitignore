@@ -19,7 +19,8 @@ pretrain/
 runs/
 data/
 weights/
-tests/
+tests/*
+!tests/*.py
 
 # Python cache
 __pycache__/

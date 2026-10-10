@@ -27,7 +27,7 @@ The current implementation uses:
 
 ## Requirements
 
-The project expects Python 3.10 and these Python packages:
+The revised runtime was tested with Python 3.11 and these Python packages:
 
 - `pandas`
 - `pillow`
@@ -169,9 +169,10 @@ is tuned for images matching the bundled dataset layout.
 into polygons. Class ID `2` is the PCP class (Placenta + Pedicel), and
 class `3` is `endocarp`. The class IDs remain unchanged from model training.
 
-Every detector crop must also contain a non-empty YOLO class `chili` mask
-(class ID `4`) before it is exposed as a fruit. In threshold mode, that YOLO
-mask is used only to validate the candidate; the measurement mask is built by
+Every candidate must contain a nonempty selected measurement mask. ONNX detections
+are trusted without requiring any learned class. Threshold-detector candidates
+require at least one retained learned mask from any class. By default the
+measurement mask is built by
 red-channel thresholding, morphological closing, and retaining the largest
 external contour. All subordinate masks are clipped to this main contour and
 pixels outside it are rendered black, so a neighbouring fruit captured by the
@@ -248,3 +249,66 @@ Future image regressions should sample from `../jeju_segmentation/`, record a
 random seed, and stratify for morphological diversity. At minimum, selection
 should cover fruit count, relative polygon area, aspect ratio, circularity,
 solidity, and extent instead of using only the small bundled `data/` subset.
+
+
+## Runtime configuration, provenance and diagnostics (October 2026 revision)
+
+Web and CLI use `src/pipeline.py` for configuration, feature rows and exports.
+The default segmentation inference size is **640**, whole-fruit threshold offset
+is **16**, and MWI chord threshold is **5 mm**. The fallback object detector uses
+red-channel offset **22** and minimum contour area **10,000 px²**. These are
+separate stages. Crop-top defaults to 540 px and crop padding is 50 px.
+
+```bash
+python predictor.py --input_path data/001_IT135673_1.jpg \
+  --seg-imgsz 640 --det-crop-top 540 --output-dir runs/review \
+  --save_csv --save_img
+```
+
+`--output-dir` is created automatically. `--save_csv` writes `output.csv` without
+an extra pandas index; `--save_img` writes oriented segmentation overlays under
+`images/<input-stem>/`. Each run writes `manifest.json`, even without CSV. Use a
+separate output directory for each run because names within a directory are
+replaced. The Web UI downloads a ZIP containing the same numeric table and a
+manifest, and exposes inference size, crop-top and detector thresholds.
+
+The manifest records effective settings, input/checkpoint SHA-256 hashes, source
+hashes, Git revision/dirty state, direct dependency versions, image runtime,
+scale source, candidate rejection reasons and per-fruit diagnostics. Old CSV
+trait columns/values are preserved; diagnostic statuses are separate. A
+`computed` status means that an algorithm returned a value, not that a physical
+reference validated that value. Failure-related legacy zeros retain their
+numeric value and are identified by status/reasons. Empty seed masks do not
+prove biological seed absence. Thickness diagnostics expose valid/filtered/used
+sample counts and the prefilter fallback. MWI exposes contour/segment counts.
+Threshold-mask confidence 1.0 is a synthetic presence flag, not a probability.
+
+The pipeline measures prepared camera images of longitudinal sections. FL/FW
+exclude outer but may include pedicel; FA includes the complete selected mask.
+Canonical FW uses all nonempty rows after a 5% spatial trim, rather than the
+auxiliary 9-segment output. FCI uses the rounded discrete FL and can be below
+one for a straight finite mask. MWI uses closed external fruit-body contours;
+raster orientation, global curvature and cut edges can contribute. Color
+Uniformity is population SD of the OpenCV zero-centered a channel: higher means
+less uniform. Its region includes endocarp pixels and has no white-balance
+normalization. Names mesocarp/endocarp are operational annotation labels.
+
+`requirements-tested.txt` records direct packages in the tested environment;
+the torch CUDA build string is provenance for that environment, not a portable
+CPU wheel requirement. Use `requirements.txt` for a platform-appropriate install
+and retain its resolved versions in manifests. Linux QR decoding needs libzbar;
+otherwise the documented dataset-mean scale fallback is used.
+
+```bash
+python -m unittest discover -s tests -p 'test_*.py' -v
+python tests/evaluate_measurement_masks.py --output ../review_artifacts/mask_diagnostics.json
+```
+
+Mask diagnostics compare selected threshold masks and optional cleaned YOLO
+masks on the bundled sample image subset using current five-class annotations
+from `../jeju_segmentation/`. Historical bundled JSON files are not whole-fruit
+references. Mismatched annotation dimensions are skipped without guessing a
+transform. One-to-one matching uses IoU >= 0.5; Dice and boundary F (2 original
+pixel tolerance) are reported for matched objects, with FP/FN counts separately.
+Split membership and color strata are unknown. This diagnostic is not a held-out
+paper experiment and does not replace reported results or physical trait validation.

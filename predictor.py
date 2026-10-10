@@ -1,7 +1,6 @@
 import os
-import matplotlib.pyplot as plt
-import shutil
-import glob
+import math
+import time
 import argparse
 import torch
 import pandas as pd
@@ -15,9 +14,9 @@ from src.detect import (
     DEFAULT_IOU,
     DetectModel,
 )
-from src.segment import SegmentModel
-from src.object import Fruits, Chili
-from src.traits import CANONICAL_TRAIT_COLUMNS, canonical_trait_row
+from src.pipeline import (PipelineConfig, build_models, run_image, feature_row,
+                          feature_columns, create_manifest, image_diagnostics,
+                          write_exports, save_overlays)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -30,36 +29,16 @@ WEIGHT_MODEL_SEGMENT = os.getenv(
 )
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
-PREDICTOR_EXTRA_COLUMNS = [
-    "Width BBox",
-    "Height BBox",
-    "Width (9 segments)",
-    "Length (9 segments)",
-    "Fruit Body Area",
-    "Seed Area Min",
-    "Seed Area Max",
-    "Seed Area Average",
-    "Seed Area Std",
-    "Redness",
-    "Color Uniformity",
-    "Scale Ratio",
-    "Scale Source",
-]
-PREDICTOR_COLUMNS = (
-    ["ID", "Name Root", "Name"]
-    + list(CANONICAL_TRAIT_COLUMNS)
-    + PREDICTOR_EXTRA_COLUMNS
-)
-
+PREDICTOR_COLUMNS = feature_columns(include_root=True)
 
 def positive_float(value):
     number = float(value)
-    if number <= 0:
+    if not math.isfinite(number) or number <= 0:
         raise argparse.ArgumentTypeError("value must be greater than zero")
     return number
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Chili Pepper Segmentation")
 
     parser.add_argument("--input_path", type=str, required=True, help="Path or dir to input image")
@@ -116,99 +95,60 @@ def parse_args():
         type=positive_float,
         help="Fruit-body contour chord threshold in mm used by the wrinkle feature",
     )
+    parser.add_argument("--seg-imgsz", default=640, type=int, help="Segmentation inference size")
+    parser.add_argument("--output-dir", default="./runs/predict", type=Path, help="CSV, manifest and overlay directory")
     parser.add_argument("--save_csv", action="store_true", help="save output result")
     parser.add_argument("--save_img", action="store_true", help="save image output")
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+def config_from_args(args):
+    backend = args.detector_backend
+    if args.name_model_det is not None:
+        backend = "threshold" if args.name_model_det in {"none", "threshold"} else "yolov7_onnx"
+    if args.use_model_det:
+        backend = "yolov7_onnx"
+    if args.name_model_seg != "yolo":
+        raise ValueError("Only yolo segmentation is supported")
+    return PipelineConfig(
+        detector_backend=backend, weight_det=args.weight_det, weight_seg=args.weight_seg,
+        device=str(args.device), det_conf=args.det_conf_thres,
+        det_iou=args.det_iou_thres, det_containment=args.det_containment_thres,
+        det_input_size=args.det_input_size, det_crop_top=args.det_crop_top,
+        seg_imgsz=args.seg_imgsz, chili_method=args.chili_method,
+        chili_threshold=args.chili_threshold,
+        wrinkle_tau_mm=args.mesocarp_wrinkle_segment_threshold_mm,
+    )
+
 
 def inference(args):
-    detector_backend = args.detector_backend
-    if args.name_model_det is not None:
-        detector_backend = (
-            "threshold"
-            if args.name_model_det in {"none", "threshold"}
-            else "yolov7_onnx"
-        )
-    if args.use_model_det:
-        detector_backend = "yolov7_onnx"
-
-    model_detect = DetectModel(
-        backend=detector_backend,
-        weight_path=args.weight_det,
-        conf_threshold=args.det_conf_thres,
-        iou_threshold=args.det_iou_thres,
-        containment_threshold=args.det_containment_thres,
-        input_size=args.det_input_size,
-        crop_top=args.det_crop_top,
-    )
-
-    model_segment = SegmentModel(
-        weight_path=args.weight_seg,
-        model_name=args.name_model_seg,
-        device=args.device,
-        chili_method=args.chili_method,
-        chili_threshold=args.chili_threshold,
-    )
-    
-    data_dir = args.input_path
-
-    if not os.path.exists(data_dir):
-        print("input path is not exist", data_dir)
-
-    if os.path.isdir(data_dir):
-        image_paths = glob.glob(f"{data_dir}/*.png") + \
-              glob.glob(f"{data_dir}/*.jpg") + \
-              glob.glob(f"{data_dir}/*.jpeg") + \
-              glob.glob(f"{data_dir}/*.PNG") + \
-              glob.glob(f"{data_dir}/*.JPG") + \
-              glob.glob(f"{data_dir}/*.JPEG")
-    else:
-        image_paths = [data_dir]
-    
+    config = config_from_args(args)
+    source = Path(args.input_path)
+    if not source.exists():
+        raise FileNotFoundError(f"Input path does not exist: {source}")
+    extensions = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    paths = sorted(p for p in source.iterdir() if p.is_file() and p.suffix.lower() in extensions) if source.is_dir() else [source]
+    if not paths:
+        raise ValueError(f"No supported images in {source}")
+    manifest = create_manifest(config, paths)
+    models = build_models(config)
     rows = []
-    for image_path in image_paths:
-        name_image = Path(image_path).stem
-        chilis = Fruits(
-            image_path,
-            model_detect=model_detect,
-            model_segment=model_segment,
-            chili_method=args.chili_method,
-            chili_threshold=args.chili_threshold,
-            mesocarp_wrinkle_segment_threshold_mm=(
-                args.mesocarp_wrinkle_segment_threshold_mm
-            ),
-        )
-
-        for chili in chilis.items:
-            row = {
-                "ID": chili.id,
-                "Name Root": name_image,
-                "Name": chili.name,
-            }
-            row.update(canonical_trait_row(chili))
-            row.update(
-                {
-                    "Width BBox": chili.width_bbox,
-                    "Height BBox": chili.height_bbox,
-                    "Width (9 segments)": chili.width_fruit_9seg,
-                    "Length (9 segments)": chili.length_fruit_9seg,
-                    "Fruit Body Area": chili.fruit_body_area,
-                    "Seed Area Min": chili.seed_stats["min"],
-                    "Seed Area Max": chili.seed_stats["max"],
-                    "Seed Area Average": chili.seed_stats["avg"],
-                    "Seed Area Std": chili.seed_stats["std"],
-                    "Redness": chili.redness,
-                    "Color Uniformity": chili.color_uniformity,
-                    "Scale Ratio": chili.ratio,
-                    "Scale Source": chili.scale_source,
-                }
-            )
-            rows.append(row)
+    for path in paths:
+        started = time.perf_counter()
+        try:
+            fruits = run_image(path, config, models)
+            rows.extend(feature_row(chili, path.stem) for chili in fruits.items)
+            entry = image_diagnostics(fruits)
+            entry["elapsed_seconds"] = time.perf_counter() - started
+            manifest["images"].append(entry)
+            if args.save_img:
+                save_overlays(fruits, args.output_dir)
+        except (ValueError, OSError) as exc:
+            manifest["errors"].append({"input": str(path.resolve()), "message": str(exc)})
+            print(f"Failed {path.name}: {exc}")
     results = pd.DataFrame(rows, columns=PREDICTOR_COLUMNS)
-
-    if args.save_csv:
-        results.to_csv('./runs/predict/output.csv')
-
+    write_exports(args.output_dir, results, manifest, save_csv=args.save_csv)
+    results.attrs["manifest"] = manifest
     return results
 
 def main():
@@ -217,6 +157,8 @@ def main():
     print("Arguments:", args)
     results = inference(args)
     print(results)
+    if results.attrs["manifest"]["errors"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
