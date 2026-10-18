@@ -22,13 +22,12 @@ from src.geometric_features import (
 )
 from src.traits import trait_values_by_symbol
 
-CLASS_NAMES = {0: "seed", 1: "outer", 2: "PCP", 3: "endocarp", 4: "chili"}
+CLASS_NAMES = {0: "seed", 1: "outer", 2: "PCP", 3: "endocarp"}
 CLASS_COLORS = {
     0: (125, 0, 25),
     1: (0, 155, 0),
     2: (55, 0, 155),
     3: (0, 155, 155),
-    4: (155, 0, 155),
 }
 
 MAX_PEDICEL_RATIO = 0.35
@@ -362,7 +361,7 @@ def _mesocarp_binary_mask(mask, name):
     return np.where(mask > 0, 255, 0).astype(np.uint8)
 
 
-def _roi_gap_in_outer(chili_mask, outer_mask, gap_tolerance, margin):
+def _roi_gap_in_outer(fruit_mask, outer_mask, gap_tolerance, margin):
     """Return a binary ROI mask covering only the stretches of chili's boundary
     that outer's mask fails to reach by more than *gap_tolerance* pixels.
 
@@ -373,14 +372,14 @@ def _roi_gap_in_outer(chili_mask, outer_mask, gap_tolerance, margin):
     applied without touching the rest of the already-correct boundary.
     """
     edge_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    chili_boundary = cv2.subtract(chili_mask, cv2.erode(chili_mask, edge_kernel))
+    fruit_boundary = cv2.subtract(fruit_mask, cv2.erode(fruit_mask, edge_kernel))
 
     tol_kernel = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE, (gap_tolerance * 2 + 1, gap_tolerance * 2 + 1)
     )
     outer_reach = cv2.dilate(outer_mask, tol_kernel)
 
-    gap_segments = cv2.bitwise_and(chili_boundary, cv2.bitwise_not(outer_reach))
+    gap_segments = cv2.bitwise_and(fruit_boundary, cv2.bitwise_not(outer_reach))
 
     margin_kernel = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE, (margin * 2 + 1, margin * 2 + 1)
@@ -389,7 +388,7 @@ def _roi_gap_in_outer(chili_mask, outer_mask, gap_tolerance, margin):
 
 
 def _open_with_roi(raw, kernel_size, roi_kernel_size, roi_margin, gap_tolerance,
-                   outer_mask, chili_mask):
+                   outer_mask, fruit_mask):
     """Morphological opening with an optional stronger pass inside an ROI.
 
     A global opening with *kernel_size* is applied everywhere.  Where
@@ -405,7 +404,7 @@ def _open_with_roi(raw, kernel_size, roi_kernel_size, roi_margin, gap_tolerance,
 
     roi_mask = None
     if roi_kernel_size is not None:
-        roi_mask = _roi_gap_in_outer(chili_mask, outer_mask, gap_tolerance, roi_margin)
+        roi_mask = _roi_gap_in_outer(fruit_mask, outer_mask, gap_tolerance, roi_margin)
         roi_kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (roi_kernel_size, roi_kernel_size)
         )
@@ -416,13 +415,13 @@ def _open_with_roi(raw, kernel_size, roi_kernel_size, roi_margin, gap_tolerance,
 
 
 def _clean_mesocarp(mask_raw, kernel_size, roi_kernel_size, roi_margin,
-                    gap_tolerance, outer_mask, chili_mask):
+                    gap_tolerance, outer_mask, fruit_mask):
     """Apply opening (with optional ROI stronger pass) and keep only the
     largest 8-connected component of the result."""
     raw = _mesocarp_binary_mask(mask_raw, "mesocarp_raw")
     opened, _roi = _open_with_roi(
         raw, kernel_size, roi_kernel_size, roi_margin, gap_tolerance,
-        outer_mask, chili_mask,
+        outer_mask, fruit_mask,
     )
     count, labels, stats, _ = cv2.connectedComponentsWithStats(
         (opened > 0).astype(np.uint8), connectivity=8
@@ -449,15 +448,15 @@ def compute_mesocarp_mask_raw(chili):
     3. Remove orphan islands smaller than 5 % of the main body (artefacts
        left behind when step 2 cuts the mask into pieces).
     """
-    raw_chili_minus_outer = cv2.subtract(chili.mask_chili, chili.mask_outer)
+    raw_fruit_minus_outer = cv2.subtract(chili.mask_fruit, chili.mask_outer)
     cleaned = _clean_mesocarp(
-        raw_chili_minus_outer,
+        raw_fruit_minus_outer,
         kernel_size=7,
         roi_kernel_size=21,
         roi_margin=30,
         gap_tolerance=5,
         outer_mask=chili.mask_outer,
-        chili_mask=chili.mask_chili,
+        fruit_mask=chili.mask_fruit,
     )
 
     mask = cv2.subtract(cleaned, chili.mask_endocarp)
@@ -667,8 +666,7 @@ class Fruits(object):
         path,
         model_detect,
         model_segment,
-        chili_method=None,
-        chili_threshold=None,
+        fruit_threshold_offset=16,
         mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
     ):
         self.path = path
@@ -680,8 +678,7 @@ class Fruits(object):
             if detector_backend == "threshold"
             else "detector_trusted"
         )
-        self.chili_method = chili_method
-        self.chili_threshold = chili_threshold
+        self.fruit_threshold_offset = int(fruit_threshold_offset)
         if mesocarp_wrinkle_segment_threshold_mm <= 0:
             raise ValueError(
                 "mesocarp_wrinkle_segment_threshold_mm must be greater than zero"
@@ -737,8 +734,7 @@ class Fruits(object):
             self.model_segment,
             bbox,
             self.ratio,
-            chili_method=self.chili_method,
-            chili_threshold=self.chili_threshold,
+            fruit_threshold_offset=self.fruit_threshold_offset,
             validation_mode=self.validation_mode,
             scale_source=self.scale_source,
             mesocarp_wrinkle_segment_threshold_mm=(
@@ -817,8 +813,7 @@ class Chili(Fruits):
         model_segment,
         bbox,
         ratio,
-        chili_method=None,
-        chili_threshold=None,
+        fruit_threshold_offset=16,
         validation_mode="detector_trusted",
         scale_source="provided",
         mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
@@ -847,12 +842,13 @@ class Chili(Fruits):
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
         self.rotation = "none"
 
+        self.fruit_threshold_offset = int(fruit_threshold_offset)
+
         # First pass prediction to find orientation
         rseg = model_segment.predict(
             self.img,
-            chili_method=chili_method,
-            chili_threshold=chili_threshold,
             validation_mode=validation_mode,
+            fruit_threshold_offset=self.fruit_threshold_offset,
         )
         
         # Determine rotation from PCP mask (class 2)
@@ -899,20 +895,19 @@ class Chili(Fruits):
                 # Re-run prediction on the rotated image
                 rseg = model_segment.predict(
                     self.img,
-                    chili_method=chili_method,
-                    chili_threshold=chili_threshold,
                     validation_mode=validation_mode,
+                    fruit_threshold_offset=self.fruit_threshold_offset,
                 )
 
         self.rseg = rseg
         segment_stats = self.rseg.get("stats", {})
-        if not segment_stats.get("is_valid_chili", False):
-            reason = segment_stats.get("rejection_reason") or "invalid_chili_mask"
+        if not segment_stats.get("is_valid_fruit", False):
+            reason = segment_stats.get("rejection_reason") or "invalid_fruit_mask"
             raise InvalidChiliCandidate(reason)
 
         self.polygons = self.get_polygons()
 
-        self.mask_chili = self._get_class_mask(4)
+        self.mask_fruit = np.asarray(self.rseg["fruit_mask"], dtype=np.uint8)
         # Endocarp is consumed directly from YOLO's raster masks.  Do not use
         # SegmentModel's filled/smoothed polygon representation for this class.
         self.mask_endocarp = self._get_raw_yolo_class_mask(3)
@@ -921,8 +916,8 @@ class Chili(Fruits):
         self.mask_outer = self._get_class_mask(1)
         self.mask_seed = self._get_class_mask(0)
 
-        if not np.any(self.mask_chili):
-            raise InvalidChiliCandidate("empty_selected_chili_mask")
+        if not np.any(self.mask_fruit):
+            raise InvalidChiliCandidate("empty_selected_fruit_mask")
 
         # Raster masks are authoritative. Rebuild display polygons after all
         # class masks have been clipped to the selected chili.
@@ -931,9 +926,9 @@ class Chili(Fruits):
 
         # The padded crop may contain a neighbouring fruit. Keep only the
         # selected chili's pixels for display and all colour-based features.
-        self._black_outside_chili_mask()
+        self._black_outside_fruit_mask()
 
-        self.mask = self.mask_chili
+        self.mask = self.mask_fruit
 
         # Separate the entire green pedicel from the PCP class.
         self.mask_pedicel, self.mask_placenta = self._separate_pedicel_and_placenta()
@@ -1039,7 +1034,6 @@ class Chili(Fruits):
             1: self.mask_outer,
             2: self.mask_pcp,
             3: self.mask_endocarp,
-            4: self.mask_chili,
         }
         for class_id, mask in class_masks.items():
             contours, _ = cv2.findContours(
@@ -1057,8 +1051,8 @@ class Chili(Fruits):
                 })
         return polygons
 
-    def _black_outside_chili_mask(self):
-        mask = (self.mask_chili > 0).astype(np.uint8) * 255
+    def _black_outside_fruit_mask(self):
+        mask = (self.mask_fruit > 0).astype(np.uint8) * 255
         self.img = cv2.bitwise_and(self.img, self.img, mask=mask)
 
     def _get_class_mask(self, class_id):
@@ -1103,7 +1097,7 @@ class Chili(Fruits):
         return f"{path.stem}_{self.id}.jpg"
 
     def _calculate_spine(self):
-        mask = cv2.subtract(self.mask_chili, self.mask_outer)
+        mask = cv2.subtract(self.mask_fruit, self.mask_outer)
         nonzero_y, nonzero_x = np.where(mask > 0)
         if len(nonzero_y) == 0:
             return None
@@ -1153,7 +1147,7 @@ class Chili(Fruits):
         measure the eight interior horizontal chords. It avoids inferring a
         curved centerline for broad or strongly lobed pepper masks.
         """
-        mask = np.asarray(self.mask_chili) > 0
+        mask = np.asarray(self.mask_fruit) > 0
         occupied_rows = np.flatnonzero(np.any(mask, axis=1))
         if len(occupied_rows) < 2:
             return []
@@ -1232,7 +1226,7 @@ class Chili(Fruits):
         return self._mesocarp_feature_data
 
     def get_fruit_body_area(self):
-        mask = cv2.subtract(self.mask_chili, self.mask_outer)
+        mask = cv2.subtract(self.mask_fruit, self.mask_outer)
         mask = cv2.subtract(mask, self.mask_pedicel)
         return round((mask / 255).sum() * (self.ratio**2), 2)
 
@@ -1246,7 +1240,7 @@ class Chili(Fruits):
         The body excludes outer and pedicel. The common area scale cancels,
         avoiding precision loss from dividing rounded mm² measurements.
         """
-        body_mask = cv2.subtract(self.mask_chili, self.mask_outer)
+        body_mask = cv2.subtract(self.mask_fruit, self.mask_outer)
         body_mask = cv2.subtract(body_mask, self.mask_pedicel)
         body_pixels = int(np.count_nonzero(body_mask))
         if body_pixels == 0:
@@ -1255,7 +1249,7 @@ class Chili(Fruits):
 
     def _get_flesh_mask(self):
         """Build the flesh mask without excluding the endocarp region."""
-        mask = cv2.subtract(self.mask_chili, self.mask_outer)
+        mask = cv2.subtract(self.mask_fruit, self.mask_outer)
         mask = cv2.subtract(mask, self.mask_pcp)
         return cv2.subtract(mask, self.mask_seed)
 
@@ -1399,7 +1393,7 @@ class Chili(Fruits):
     def get_asymmetry_index(self):
         if not hasattr(self, "spine") or self.spine is None:
             return 0
-        mask_body = cv2.subtract(self.mask_chili, self.mask_outer)
+        mask_body = cv2.subtract(self.mask_fruit, self.mask_outer)
         y_vals = self.spine["y_vals"]
         valid = self.spine["valid"]
         poly = np.poly1d(self.spine["coeffs"])
@@ -1431,7 +1425,7 @@ class Chili(Fruits):
         return np.where(img_red >= threshold, 255, 0)
 
     def get_mask(self, use_closing=True, use_contour=True):
-        return self.mask_chili.copy()
+        return self.mask_fruit.copy()
 
     def get_width_length_fruit(self):
         #Return width and length using the original public method name.
@@ -1439,7 +1433,7 @@ class Chili(Fruits):
 
     def get_area(self):
         #Calculate complete fruit area using the original public name.
-        return round((self.mask_chili > 0).sum() * (self.ratio ** 2), 2)
+        return round((self.mask_fruit > 0).sum() * (self.ratio ** 2), 2)
 
     def get_mesocarp_wrinkle_index(
         self, mesocarp_wrinkle_segment_threshold_mm=None
@@ -1467,7 +1461,7 @@ class Chili(Fruits):
         """
         import copy
         masks = {name: int(np.count_nonzero(getattr(self, 'mask_' + name)))
-                 for name in ('chili', 'outer', 'pcp', 'endocarp', 'seed', 'mesocarp', 'pedicel', 'placenta')}
+                 for name in ('fruit', 'outer', 'pcp', 'endocarp', 'seed', 'mesocarp', 'pedicel', 'placenta')}
         values = self.get_trait_values()
         traits = {symbol: {"status": "unavailable" if value is None else "computed", "reasons": []}
                   for symbol, value in values.items()}
@@ -1480,7 +1474,7 @@ class Chili(Fruits):
             flag(('FL', 'FW_mean', 'FW_min', 'FW_max', 'FA', 'MA', 'MT_mean', 'MT_min', 'MT_max', 'PA', 'SA', 'FCI', 'MWI'), 'dataset_mean_scale_fallback')
         if self.spine is None:
             flag(('FL', 'FCI', 'FAI'), 'missing_spine_legacy_zero', 'unavailable')
-        if not np.any(cv2.subtract(self.mask_chili, self.mask_outer)):
+        if not np.any(cv2.subtract(self.mask_fruit, self.mask_outer)):
             flag(('FW_mean', 'FW_min', 'FW_max'), 'empty_width_mask_legacy_zero', 'unavailable')
         if self._pedicel_diagnostics.get('status') in {'failed', 'missing_pcp'}:
             flag(('PA', 'MAF', 'SCR', 'MWI', 'MT_mean', 'MT_min', 'MT_max'), 'pedicel_separation_' + self._pedicel_diagnostics['status'])
@@ -1532,7 +1526,7 @@ class Chili(Fruits):
         #Preserve the original contour inspection helper.
         img = self.img.copy()
         contours, _ = cv2.findContours(
-            self.mask_chili, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            self.mask_fruit, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         if not contours:
             return contours, img
@@ -1543,7 +1537,7 @@ class Chili(Fruits):
     def get_redness_metrics(self):
         mask_remove = cv2.bitwise_or(self.mask_seed, self.mask_outer)
         mask_remove = cv2.bitwise_or(mask_remove, self.mask_pcp)
-        mask_pure_red = cv2.subtract(self.mask_chili, mask_remove)
+        mask_pure_red = cv2.subtract(self.mask_fruit, mask_remove)
 
         lab = cv2.cvtColor(self.img, cv2.COLOR_RGB2LAB)
 

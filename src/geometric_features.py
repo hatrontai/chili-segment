@@ -149,7 +149,7 @@ def build_mesocarp_data(chili, ratio):
     if ratio <= 0:
         raise ValueError("ratio must be greater than zero")
 
-    chili_mask = _as_bool(chili.mask_chili)
+    fruit_mask = _as_bool(chili.mask_fruit)
     endocarp = _as_bool(chili.mask_endocarp)
     outer = _as_bool(chili.mask_outer)
     pcp = _as_bool(chili.mask_pcp)
@@ -165,7 +165,7 @@ def build_mesocarp_data(chili, ratio):
 
     boundary = mesocarp & ~ndi.binary_erosion(mesocarp, structure=np.ones((3, 3)))
     inner_reference = endocarp | pcp | seed
-    outer_reference = outer | ~chili_mask
+    outer_reference = outer | ~fruit_mask
     distance_to_inner = ndi.distance_transform_edt(~inner_reference)
     distance_to_outer = ndi.distance_transform_edt(~outer_reference)
     inner_edge = boundary & (distance_to_inner <= distance_to_outer)
@@ -203,7 +203,7 @@ def build_mesocarp_data(chili, ratio):
         "inner_edge": inner_edge,
         "outer_edge": outer_edge,
         "pedicel_exclusion": pedicel_exclusion,
-        "wrinkle_mask": chili_mask & ~(pedicel | outer),
+        "wrinkle_mask": fruit_mask & ~(pedicel | outer),
         "signed_distance": signed_distance,
         "mesocarp_for_skeleton": mesocarp_for_skeleton,
         "skeleton": skeleton,

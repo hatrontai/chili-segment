@@ -28,10 +28,10 @@ class RuntimeTests(unittest.TestCase):
             fruits.image.close()
 
     def test_cli_config_preserves_effective_overrides_and_aliases(self):
-        args = parse_args(['--input_path','example.png','--name_model_det','none', '--seg-imgsz','960', '--det-crop-top','0', '--det-conf-thres','0.42', '--chili_threshold','23', '--mesocarp-wrinkle-segment-threshold-mm','10'])
+        args = parse_args(['--input_path','example.png','--name_model_det','none', '--seg-imgsz','960', '--det-crop-top','0', '--det-conf-thres','0.42', '--fruit-threshold-offset','23', '--mesocarp-wrinkle-segment-threshold-mm','10'])
         config=config_from_args(args)
         self.assertEqual(config.detector_backend,'threshold')
-        self.assertEqual((config.seg_imgsz,config.det_crop_top,config.chili_threshold,config.wrinkle_tau_mm),(960,0,23,10))
+        self.assertEqual((config.seg_imgsz,config.det_crop_top,config.fruit_threshold_offset,config.wrinkle_tau_mm),(960,0,23,10))
         self.assertEqual(config.effective_settings()['detector_threshold_offset'],22)
         self.assertEqual(config.det_conf,.42)
 

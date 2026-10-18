@@ -78,13 +78,7 @@ def parse_args(argv=None):
     )
     parser.add_argument("--det-crop-top", default=DEFAULT_CROP_TOP, type=int)
     parser.add_argument(
-        "--chili_method",
-        choices=["threshold", "yolo"],
-        default="threshold",
-        help="Method used to build class chili; other classes still use YOLO",
-    )
-    parser.add_argument(
-        "--chili_threshold",
+        "--fruit-threshold-offset",
         default=16,
         type=int,
         help="Offset added to the dominant red-channel value in threshold mode",
@@ -115,8 +109,8 @@ def config_from_args(args):
         device=str(args.device), det_conf=args.det_conf_thres,
         det_iou=args.det_iou_thres, det_containment=args.det_containment_thres,
         det_input_size=args.det_input_size, det_crop_top=args.det_crop_top,
-        seg_imgsz=args.seg_imgsz, chili_method=args.chili_method,
-        chili_threshold=args.chili_threshold,
+        seg_imgsz=args.seg_imgsz,
+        fruit_threshold_offset=args.fruit_threshold_offset,
         wrinkle_tau_mm=args.mesocarp_wrinkle_segment_threshold_mm,
     )
 

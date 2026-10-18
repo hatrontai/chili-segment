@@ -155,10 +155,13 @@ smaller box area (IoM) reaches 0.60.
 
 YOLOv7 candidates are trusted and are not rejected when segmentation classes
 are absent. Threshold-detector candidates require at least one retained
-segmentation mask from any class. When class `chili` is unavailable in YOLO
-mask mode, the largest red-threshold contour becomes the measurement mask.
-Component classes remain filtered at `0.10`, seed at `0.35`, and chili at
-`0.01`; any retained subordinate mask is clipped to the measurement mask.
+anatomical segmentation mask. The whole-fruit measurement mask is always
+created independently from the red channel by adaptive thresholding, closing,
+and retaining the largest external contour. Learned class ID `4` from legacy
+five-class weights is ignored; only seed, outer, PCP, and endocarp masks are
+used from the segmentation model. Component classes are filtered at `0.10`
+and seed at `0.35`; retained anatomical masks are clipped to the threshold
+whole-fruit mask.
 Bounding boxes are mapped back through the letterbox transform and the 540-pixel
 offset. Input images therefore do not need to be 640x640. The fallback detector
 is tuned for images matching the bundled dataset layout.
@@ -166,8 +169,11 @@ is tuned for images matching the bundled dataset layout.
 ### Segmentation
 
 `src/segment.py` wraps a YOLOv8 segmentation model and post-processes the masks
-into polygons. Class ID `2` is the PCP class (Placenta + Pedicel), and
-class `3` is `endocarp`. The class IDs remain unchanged from model training.
+into polygons for four anatomical classes: seed (`0`), outer (`1`), PCP
+(Placenta + Pedicel, `2`), and endocarp (`3`). The whole-fruit measurement
+mask is stored separately as `fruit_mask` and is not a YOLO segmentation
+class. Existing five-class weights remain loadable; their class ID `4`
+predictions are discarded.
 
 Every candidate must contain a nonempty selected measurement mask. ONNX detections
 are trusted without requiring any learned class. Threshold-detector candidates
@@ -224,7 +230,7 @@ placenta.
 Mesocarp thickness is sampled every 1 mm along the longest skeleton backbone.
 Each sample uses the shortest valid straight line through the skeleton that
 crosses one inner and one outer mesocarp edge. The mesocarp wrinkle index uses
-the external contours of `mask_chili - (mask_pedicel | mask_outer)`.
+the external contours of `mask_fruit - (mask_pedicel | mask_outer)`.
 Internal-hole contours are excluded; boundaries exposed by removing the pedicel
 and outer are included. Closed contours retain full-chord cuts and a final
 residual segment without tail rebalancing. A closed contour with no full-chord

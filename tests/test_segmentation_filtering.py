@@ -50,13 +50,13 @@ class _FakeSegmentationModel:
         return [self.result]
 
 
-def _segmenter(class_ids, masks, chili_method="threshold", confidences=None):
+def _segmenter(class_ids, masks, confidences=None):
     segmenter = SegmentModel.__new__(SegmentModel)
     segmenter.model = _FakeSegmentationModel(class_ids, masks, confidences)
     segmenter.device = "cpu"
     segmenter.imgsz = 640
-    segmenter.chili_method = chili_method
-    segmenter.chili_threshold = 16
+    segmenter.MODEL_CONF_THRESHOLD = 0.01
+    segmenter.fruit_threshold_offset = 16
     return segmenter
 
 
@@ -73,15 +73,12 @@ class SegmentationCandidateTests(unittest.TestCase):
         result = _segmenter([], []).predict(
             image, validation_mode="detector_trusted"
         )
-        masks = {
-            item["class_id"]: item["mask"] for item in result["masks_data"]
-        }
-
-        self.assertTrue(result["stats"]["is_valid_chili"])
+        self.assertTrue(result["stats"]["is_valid_fruit"])
         self.assertFalse(result["stats"]["has_any_segment_mask"])
         self.assertEqual(result["stats"]["validation_mode"], "detector_trusted")
-        self.assertEqual(result["stats"]["mask_source"], "threshold")
-        self.assertGreater(np.count_nonzero(masks[4]), 0)
+        self.assertEqual(result["stats"]["fruit_mask_source"], "red_channel_threshold")
+        self.assertGreater(np.count_nonzero(result["fruit_mask"]), 0)
+        self.assertEqual(result["masks_data"], [])
 
     def test_threshold_detector_accepts_any_segment_class(self):
         image = self._threshold_image()
@@ -90,7 +87,7 @@ class SegmentationCandidateTests(unittest.TestCase):
             image, validation_mode="any_segment"
         )
 
-        self.assertTrue(result["stats"]["is_valid_chili"])
+        self.assertTrue(result["stats"]["is_valid_fruit"])
         self.assertTrue(result["stats"]["has_any_segment_mask"])
         self.assertIsNone(result["stats"]["rejection_reason"])
 
@@ -100,94 +97,64 @@ class SegmentationCandidateTests(unittest.TestCase):
             image, validation_mode="any_segment"
         )
 
-        self.assertFalse(result["stats"]["is_valid_chili"])
+        self.assertFalse(result["stats"]["is_valid_fruit"])
         self.assertEqual(result["stats"]["rejection_reason"], "no_segment_mask")
         self.assertEqual(result["masks_data"], [])
         self.assertEqual(result["polygons"], [])
 
     def test_threshold_keeps_largest_contour_and_clips_subordinate_masks(self):
         image = self._threshold_image()
-        yolo_chili = np.zeros(image.shape[:2], dtype=np.float32)
-        yolo_chili[10:65, 20:70] = 1
         outer_mask = np.ones(image.shape[:2], dtype=np.float32)
 
-        result = _segmenter(
-            [4, 1], [yolo_chili, outer_mask]
-        ).predict(image)
+        result = _segmenter([1], [outer_mask]).predict(image)
         masks = {
             item["class_id"]: item["mask"] for item in result["masks_data"]
         }
-        chili_mask = masks[4]
+        fruit_mask = result["fruit_mask"]
 
-        self.assertTrue(result["stats"]["is_valid_chili"])
-        self.assertGreater(np.count_nonzero(chili_mask[:, 20:70]), 0)
-        self.assertEqual(np.count_nonzero(chili_mask[:, 95:]), 0)
-        self.assertFalse(bool(np.any((masks[1] > 0) & (chili_mask == 0))))
+        self.assertTrue(result["stats"]["is_valid_fruit"])
+        self.assertGreater(np.count_nonzero(fruit_mask[:, 20:70]), 0)
+        self.assertEqual(np.count_nonzero(fruit_mask[:, 95:]), 0)
+        self.assertFalse(bool(np.any((masks[1] > 0) & (fruit_mask == 0))))
 
-    def test_low_confidence_chili_validates_without_admitting_low_component(self):
+    def test_legacy_class_four_is_ignored_and_low_component_is_filtered(self):
         image = self._threshold_image()
-        chili = np.zeros(image.shape[:2], dtype=np.float32)
-        chili[10:65, 20:70] = 1
+        legacy_class_four = np.ones(image.shape[:2], dtype=np.float32)
         outer = np.ones(image.shape[:2], dtype=np.float32)
 
         result = _segmenter(
-            [4, 1], [chili, outer], confidences=[0.02, 0.02]
+            [4, 1], [legacy_class_four, outer], confidences=[0.9, 0.02]
         ).predict(image)
         class_ids = [item["class_id"] for item in result["masks_data"]]
 
-        self.assertTrue(result["stats"]["is_valid_chili"])
-        self.assertIn(4, class_ids)
+        self.assertTrue(result["stats"]["is_valid_fruit"])
+        self.assertNotIn(4, class_ids)
         self.assertNotIn(1, class_ids)
 
     def test_below_threshold_segment_does_not_confirm_threshold_detector(self):
         image = self._threshold_image()
-        chili = np.zeros(image.shape[:2], dtype=np.float32)
-        chili[10:65, 20:70] = 1
+        legacy_class_four = np.zeros(image.shape[:2], dtype=np.float32)
+        legacy_class_four[10:65, 20:70] = 1
 
-        result = _segmenter([4], [chili], confidences=[0.005]).predict(
+        result = _segmenter([4], [legacy_class_four], confidences=[0.9]).predict(
             image, validation_mode="any_segment"
         )
 
-        self.assertFalse(result["stats"]["is_valid_chili"])
+        self.assertFalse(result["stats"]["is_valid_fruit"])
         self.assertEqual(result["stats"]["rejection_reason"], "no_segment_mask")
 
-    def test_yolo_mode_falls_back_to_threshold_without_chili_class(self):
+    def test_class_four_never_enters_segmentation_outputs(self):
         image = self._threshold_image()
-        endocarp = np.zeros(image.shape[:2], dtype=np.float32)
-        endocarp[20:50, 30:60] = 1
-
-        result = _segmenter(
-            [3], [endocarp], chili_method="yolo"
-        ).predict(image, validation_mode="detector_trusted")
-        masks = {
-            item["class_id"]: item["mask"] for item in result["masks_data"]
-        }
-
-        self.assertTrue(result["stats"]["is_valid_chili"])
-        self.assertEqual(result["stats"]["mask_source"], "threshold_fallback")
-        self.assertGreater(np.count_nonzero(masks[4]), 0)
-        self.assertFalse(bool(np.any((masks[3] > 0) & (masks[4] == 0))))
-
-    def test_yolo_mode_keeps_largest_chili_instance(self):
-        image = np.zeros((80, 120, 3), dtype=np.uint8)
-        small = np.zeros(image.shape[:2], dtype=np.float32)
-        small[10:20, 5:15] = 1
-        large = np.zeros(image.shape[:2], dtype=np.float32)
-        large[20:65, 40:95] = 1
-
-        result = _segmenter(
-            [4, 4], [small, large], chili_method="yolo"
-        ).predict(image)
-        chili_masks = [
-            item["mask"]
-            for item in result["masks_data"]
-            if item["class_id"] == 4
+        class_four_masks = [
+            np.ones(image.shape[:2], dtype=np.float32),
+            np.ones(image.shape[:2], dtype=np.float32),
         ]
+        result = _segmenter([4, 4], class_four_masks).predict(image)
 
-        self.assertTrue(result["stats"]["is_valid_chili"])
-        self.assertEqual(len(chili_masks), 1)
-        self.assertEqual(np.count_nonzero(chili_masks[0][:, :25]), 0)
-        self.assertGreater(np.count_nonzero(chili_masks[0][:, 40:95]), 0)
+        self.assertTrue(result["stats"]["is_valid_fruit"])
+        self.assertEqual(result["masks_data"], [])
+        self.assertEqual(result["polygons"], [])
+        self.assertGreater(np.count_nonzero(result["fruit_mask"]), 0)
 
 
 class DetectorDeduplicationTests(unittest.TestCase):
@@ -249,16 +216,16 @@ class DetectorDeduplicationTests(unittest.TestCase):
 
 
 class ChiliCropTests(unittest.TestCase):
-    def test_pixels_outside_selected_chili_are_black(self):
+    def test_pixels_outside_threshold_fruit_mask_are_black(self):
         chili = Chili.__new__(Chili)
         chili.img = np.full((8, 10, 3), 200, dtype=np.uint8)
-        chili.mask_chili = np.zeros((8, 10), dtype=np.uint8)
-        chili.mask_chili[2:7, 3:8] = 255
+        chili.mask_fruit = np.zeros((8, 10), dtype=np.uint8)
+        chili.mask_fruit[2:7, 3:8] = 255
 
-        chili._black_outside_chili_mask()
+        chili._black_outside_fruit_mask()
 
-        self.assertTrue(np.all(chili.img[chili.mask_chili == 0] == 0))
-        self.assertTrue(np.all(chili.img[chili.mask_chili > 0] == 200))
+        self.assertTrue(np.all(chili.img[chili.mask_fruit == 0] == 0))
+        self.assertTrue(np.all(chili.img[chili.mask_fruit > 0] == 200))
 
 
 class _DetectionModel:

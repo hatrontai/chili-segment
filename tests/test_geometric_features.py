@@ -101,7 +101,7 @@ class TerminologyTests(unittest.TestCase):
 
     def test_maf_excludes_outer_and_pedicel_and_is_scale_independent(self):
         chili = Chili.__new__(Chili)
-        chili.mask_chili = np.full((10, 10), 255, dtype=np.uint8)
+        chili.mask_fruit = np.full((10, 10), 255, dtype=np.uint8)
         chili.mask_outer = np.zeros((10, 10), dtype=np.uint8)
         chili.mask_outer[0, :] = 255
         chili.mask_pedicel = np.zeros((10, 10), dtype=np.uint8)
@@ -115,7 +115,7 @@ class TerminologyTests(unittest.TestCase):
         self.assertEqual(chili.get_mesocarp_area_fraction(), 0.0)
         chili.mask_mesocarp[2:, :] = 255
         self.assertEqual(chili.get_mesocarp_area_fraction(), 1.0)
-        chili.mask_chili[:] = 0
+        chili.mask_fruit[:] = 0
         chili.mask_mesocarp[:] = 0
         self.assertIsNone(chili.get_mesocarp_area_fraction())
 
@@ -145,7 +145,7 @@ class TerminologyTests(unittest.TestCase):
     def test_mesocarp_excludes_all_non_mesocarp_classes(self):
         shape = (60, 80)
         chili = type("SyntheticChili", (), {})()
-        chili.mask_chili = np.full(shape, 255, dtype=np.uint8)
+        chili.mask_fruit = np.full(shape, 255, dtype=np.uint8)
         chili.mask_endocarp = np.zeros(shape, dtype=np.uint8)
         chili.mask_outer = np.zeros(shape, dtype=np.uint8)
         chili.mask_pcp = np.zeros(shape, dtype=np.uint8)
@@ -197,7 +197,7 @@ class TerminologyTests(unittest.TestCase):
     def test_flesh_placenta_ratio_requires_ten_clean_placenta_pixels(self):
         chili = Chili.__new__(Chili)
         chili.ratio = 0.1
-        chili.mask_chili = np.full((10, 10), 255, dtype=np.uint8)
+        chili.mask_fruit = np.full((10, 10), 255, dtype=np.uint8)
         chili.mask_outer = np.zeros((10, 10), dtype=np.uint8)
         chili.mask_outer[0, :] = 255
         chili.mask_pcp = np.zeros((10, 10), dtype=np.uint8)
@@ -360,7 +360,7 @@ class ThicknessTests(unittest.TestCase):
 class FruitWidthTests(unittest.TestCase):
     def _chili(self, mask):
         chili = Chili.__new__(Chili)
-        chili.mask_chili = mask
+        chili.mask_fruit = mask
         chili.ratio = 0.1
         return chili
 
@@ -443,8 +443,8 @@ class WrinkleTests(unittest.TestCase):
     def test_wrinkle_uses_chili_minus_pedicel_and_outer(self):
         chili = Chili.__new__(Chili)
         shape = (80, 100)
-        chili.mask_chili = np.zeros(shape, dtype=np.uint8)
-        chili.mask_chili[10:70, 10:90] = 255
+        chili.mask_fruit = np.zeros(shape, dtype=np.uint8)
+        chili.mask_fruit[10:70, 10:90] = 255
         chili.mask_pedicel = np.zeros(shape, dtype=np.uint8)
         chili.mask_pedicel[:25, 40:61] = 255
         chili.mask_outer = np.zeros(shape, dtype=np.uint8)
@@ -454,13 +454,13 @@ class WrinkleTests(unittest.TestCase):
         chili.mask_pcp = chili.mask_pedicel.copy()
         chili.mask_seed = np.zeros(shape, dtype=np.uint8)
         chili.mask_mesocarp = (
-            (chili.mask_chili > 0)
+            (chili.mask_fruit > 0)
             & ~(chili.mask_pedicel > 0)
             & ~(chili.mask_outer > 0)
             & ~(chili.mask_endocarp > 0)
         ).astype(np.uint8) * 255
         data = build_mesocarp_data(chili, 0.1)
-        expected = (chili.mask_chili > 0) & ~(
+        expected = (chili.mask_fruit > 0) & ~(
             (chili.mask_pedicel > 0) | (chili.mask_outer > 0)
         )
         np.testing.assert_array_equal(data["wrinkle_mask"], expected)

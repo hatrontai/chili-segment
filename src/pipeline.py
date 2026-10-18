@@ -36,27 +36,24 @@ class PipelineConfig:
     det_input_size: int = 640
     det_crop_top: int = 540
     seg_imgsz: int = 640
-    chili_method: str = "threshold"
-    chili_threshold: int = 16
+    fruit_threshold_offset: int = 16
     wrinkle_tau_mm: float = 5.0
 
     def __post_init__(self):
         if self.detector_backend not in {"yolov7_onnx", "threshold"}:
             raise ValueError("Unsupported detector_backend")
-        if self.chili_method not in {"threshold", "yolo"}:
-            raise ValueError("Unsupported chili_method")
         for name in ("det_conf", "det_iou", "det_containment"):
             value = getattr(self, name)
             if not math.isfinite(value) or not 0 <= value <= 1:
                 raise ValueError(f"{name} must be finite and between 0 and 1")
-        for name in ("det_input_size", "seg_imgsz", "det_crop_top", "chili_threshold"):
+        for name in ("det_input_size", "seg_imgsz", "det_crop_top", "fruit_threshold_offset"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int):
                 raise ValueError(f"{name} must be an integer")
         if self.det_input_size <= 0 or self.seg_imgsz <= 0 or self.det_crop_top < 0:
             raise ValueError("Input sizes must be positive; crop_top must be nonnegative")
-        if not 0 <= self.chili_threshold <= 255:
-            raise ValueError("chili_threshold must be between 0 and 255")
+        if not 0 <= self.fruit_threshold_offset <= 255:
+            raise ValueError("fruit_threshold_offset must be between 0 and 255")
         if not math.isfinite(self.wrinkle_tau_mm) or self.wrinkle_tau_mm <= 0:
             raise ValueError("wrinkle_tau_mm must be finite and positive")
 
@@ -66,7 +63,8 @@ class PipelineConfig:
                        "detector_min_contour_area_px": 10000,
                        "crop_padding_px": 50, "seg_iou": 0.7,
                        "seg_seed_conf": 0.35, "seg_component_conf": 0.10,
-                       "seg_chili_conf": 0.01, "retina_masks": True})
+                       "seg_model_conf": 0.01, "retina_masks": True,
+                       "fruit_mask_source": "red_channel_threshold"})
         return result
 
 
@@ -79,8 +77,8 @@ def build_models(config):
                     containment_threshold=config.det_containment,
                     input_size=config.det_input_size, crop_top=config.det_crop_top),
         SegmentModel(weight_path=config.weight_seg, device=config.device,
-                     imgsz=config.seg_imgsz, chili_method=config.chili_method,
-                     chili_threshold=config.chili_threshold),
+                     imgsz=config.seg_imgsz,
+                     fruit_threshold_offset=config.fruit_threshold_offset),
     )
 
 
@@ -96,7 +94,7 @@ def run_image(path, config, models=None):
         if str(getattr(segmenter, attr)) != str(expected):
             raise ValueError(f"Segment model {attr} differs from PipelineConfig")
     return Fruits(str(path), model_detect=detector, model_segment=segmenter,
-                  chili_method=config.chili_method, chili_threshold=config.chili_threshold,
+                  fruit_threshold_offset=config.fruit_threshold_offset,
                   mesocarp_wrinkle_segment_threshold_mm=config.wrinkle_tau_mm)
 
 

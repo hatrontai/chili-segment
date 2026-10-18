@@ -82,13 +82,16 @@ def _get_models(config):
     return build_models(config)
 
 
-def _runtime_config(detector_backend="yolov7_onnx", chili_method="threshold",
-                    chili_threshold=16, tau=5.0, seg_imgsz=640, crop_top=540,
+FRUIT_MASK_COLOR = (155, 0, 155)
+
+
+def _runtime_config(detector_backend="yolov7_onnx", fruit_threshold_offset=16,
+                    tau=5.0, seg_imgsz=640, crop_top=540,
                     det_conf=0.70, det_iou=0.30, det_containment=0.60):
     return PipelineConfig(
         detector_backend=detector_backend, weight_det=str(WEIGHT_MODEL_DETECT),
         weight_seg=str(WEIGHT_MODEL_SEGMENT), device=str(DEVICE),
-        chili_method=chili_method, chili_threshold=int(chili_threshold),
+        fruit_threshold_offset=int(fruit_threshold_offset),
         wrinkle_tau_mm=float(tau), seg_imgsz=int(seg_imgsz), det_crop_top=int(crop_top),
         det_conf=float(det_conf), det_iou=float(det_iou), det_containment=float(det_containment),
     )
@@ -235,7 +238,7 @@ def _build_full_segmentation(image_rgb, fruits):
     """Project every per-fruit class mask back onto the complete source image."""
     output = image_rgb.copy()
     mask_layers = [
-        ("mask_chili", CLASS_COLORS[4]),
+        ("mask_fruit", FRUIT_MASK_COLOR),
         ("mask_endocarp", CLASS_COLORS[3]),
         ("mask_pcp", CLASS_COLORS[2]),
         ("mask_outer", CLASS_COLORS[1]),
@@ -566,7 +569,7 @@ def _build_class_mask_gallery(fruits):
         ("outer", "mask_outer", CLASS_COLORS[1]),
         ("PCP", "mask_pcp", CLASS_COLORS[2]),
         ("endocarp", "mask_endocarp", CLASS_COLORS[3]),
-        ("chili", "mask_chili", CLASS_COLORS[4]),
+        ("whole-fruit mask (threshold)", "mask_fruit", FRUIT_MASK_COLOR),
         ("pedicel", "mask_pedicel", EXTRA_MASKS["pedicel"]),
         ("placenta", "mask_placenta", EXTRA_MASKS["placenta"]),
     ]
@@ -600,13 +603,12 @@ def run_pipeline(
     upload_path,
     sample_name,
     detector_backend,
-    chili_method,
-    chili_threshold,
+    fruit_threshold_offset,
     mesocarp_wrinkle_segment_threshold_mm=5.0,
     seg_imgsz=640, crop_top=540, det_conf=0.70, det_iou=0.30, det_containment=0.60,
     _with_exports=False,
 ):
-    config = _runtime_config(detector_backend, chili_method, chili_threshold,
+    config = _runtime_config(detector_backend, fruit_threshold_offset,
                              mesocarp_wrinkle_segment_threshold_mm, seg_imgsz, crop_top,
                              det_conf, det_iou, det_containment)
     image_path, source = _resolve_input_path(upload_path, sample_name)
@@ -641,9 +643,6 @@ def run_pipeline(
     features = _features_dataframe(fruits)
 
     ratio_note = f"{fruits.ratio:.6f} mm/pixel (`{fruits.scale_source}`)"
-    chili_method_note = f"`{chili_method}`"
-    if chili_method == "threshold":
-        chili_method_note += f" (threshold offset={int(chili_threshold)})"
     summary = (
         "### Kết quả chạy pipeline\n\n"
         f"- **Nguồn ảnh:** `{source}` — `{image_path.name}`\n"
@@ -656,7 +655,7 @@ def run_pipeline(
         f"- **Tỷ lệ hiệu chỉnh:** {ratio_note}\n"
         f"- **Segmentation weight:** `{WEIGHT_MODEL_SEGMENT.name}`\n"
         f"- **Segmentation imgsz:** `{config.seg_imgsz}`; **crop phía trên:** `{config.det_crop_top}` px\n"
-        f"- **Class chili:** {chili_method_note}\n"
+        f"- **Whole-fruit measurement mask:** red-channel threshold (offset `{int(fruit_threshold_offset)}`)\n"
         f"- **Ngưỡng mesocarp wrinkle:** {float(mesocarp_wrinkle_segment_threshold_mm):g} mm\n"
         f"- **Thiết bị:** `{DEVICE}`\n"
         f"- **Thời gian:** {elapsed:.2f} giây"
@@ -730,18 +729,12 @@ def build_demo():
                 label="Object detector",
                 info="YOLOv7 ONNX chạy CPU; threshold là fallback.",
             )
-            chili_method_input = gr.Radio(
-                choices=["threshold", "yolo"],
-                value="threshold",
-                label="Phương pháp tạo class chili",
-                info="Các class seed/outer/PCP/endocarp vẫn dùng YOLO.",
-            )
-            chili_threshold_input = gr.Slider(
+            fruit_threshold_offset_input = gr.Slider(
                 minimum=0,
                 maximum=100,
                 value=16,
                 step=1,
-                label="Threshold offset cho class chili",
+                label="Offset threshold cho mask toàn quả",
             )
             mesocarp_wrinkle_threshold_input = gr.Slider(
                 minimum=0.5,
@@ -819,7 +812,7 @@ def build_demo():
                         ("outer", CLASS_COLORS[1]),
                         ("PCP", CLASS_COLORS[2]),
                         ("endocarp", CLASS_COLORS[3]),
-                        ("chili", CLASS_COLORS[4]),
+                        ("Whole-fruit mask (threshold)", FRUIT_MASK_COLOR),
                     ]
                 )
             )
@@ -845,7 +838,7 @@ def build_demo():
                         ("outer", CLASS_COLORS[1]),
                         ("PCP", CLASS_COLORS[2]),
                         ("endocarp", CLASS_COLORS[3]),
-                        ("chili", CLASS_COLORS[4]),
+                        ("Whole-fruit mask (threshold)", FRUIT_MASK_COLOR),
                         ("pedicel", EXTRA_MASKS["pedicel"]),
                         ("placenta", EXTRA_MASKS["placenta"]),
                     ]
@@ -897,8 +890,7 @@ def build_demo():
                 upload_input,
                 sample_input,
                 detector_backend_input,
-                chili_method_input,
-                chili_threshold_input,
+                fruit_threshold_offset_input,
                 mesocarp_wrinkle_threshold_input,
                 seg_imgsz_input, crop_top_input, det_conf_input, det_iou_input, det_containment_input,
             ],
