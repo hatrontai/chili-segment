@@ -21,6 +21,77 @@ from src.object import CLASS_NAMES, Chili, DEFAULT_DATASET_RATIO_MM_PER_PX, Frui
 from src.traits import CANONICAL_TRAITS, CANONICAL_TRAIT_COLUMNS, canonical_trait_row
 
 
+class SignedDeviationTests(unittest.TestCase):
+    def make_chili(self, centers):
+        chili = Chili.__new__(Chili)
+        chili.mask_fruit = np.zeros((len(centers), 100), dtype=np.uint8)
+        for y, center in enumerate(centers):
+            chili.mask_fruit[y, center - 10:center + 11] = 255
+        chili.mask_outer = np.zeros_like(chili.mask_fruit)
+        chili.mask_pedicel = np.zeros_like(chili.mask_fruit)
+        chili.spine = chili._calculate_spine()
+        return chili
+
+    def test_straight_and_tilted_centerlines_have_zero_deviation(self):
+        for centers in ([30] * 11, [20 + y for y in range(11)]):
+            self.assertEqual(self.make_chili(centers).get_deviation_stats(),
+                             {"D_L": 0.0, "D_R": 0.0, "D_mean": 0.0})
+
+    def test_bowed_body_and_mirror_reverse_signs(self):
+        chili = self.make_chili([20 + y * (10 - y) for y in range(11)])
+        with patch.object(chili, '_calculate_spine', side_effect=AssertionError('must reuse FL spine')):
+            right = chili.get_deviation_stats()
+        self.assertEqual(right['D_L'], 0)
+        self.assertGreater(right['D_R'], 0)
+        self.assertGreater(right['D_mean'], 0)
+        chili.mask_fruit = np.fliplr(chili.mask_fruit).copy()
+        chili.spine = chili._calculate_spine()
+        left = chili.get_deviation_stats()
+        self.assertAlmostEqual(left['D_L'], -right['D_R'], places=4)
+        self.assertEqual(left['D_R'], 0)
+        self.assertAlmostEqual(left['D_mean'], -right['D_mean'], places=4)
+
+    def test_equal_row_weight_zero_width_and_epsilon(self):
+        chili = self.make_chili([30] * 5)
+        # Fixed shared spine at x=30; one narrow row is wholly on the right.
+        chili.mask_fruit[:] = 0
+        chili.mask_fruit[0, 20:41] = 255  # centered, width 20
+        chili.mask_fruit[1, 31:33] = 255  # right, width 1
+        chili.mask_fruit[2, 30] = 255    # zero width still counts in the mean
+        chili.mask_fruit[4, 20:41] = 255
+        chili.spine['valid'][3] = False  # an empty row is excluded
+        stats = chili.get_deviation_stats()
+        self.assertEqual(stats, {'D_L': 0.0, 'D_R': 1.0, 'D_mean': 0.25})
+        self.assertTrue(np.isfinite(list(stats.values())).all())
+
+    def test_opposite_deviations_cancel_only_in_mean(self):
+        chili = self.make_chili([30] * 4)
+        chili.mask_fruit[:] = 0
+        chili.mask_fruit[0, 10:20] = 255
+        chili.mask_fruit[1, 40:50] = 255
+        chili.mask_fruit[2:, 20:41] = 255
+        stats = chili.get_deviation_stats()
+        self.assertLess(stats['D_L'], 0)
+        self.assertGreater(stats['D_R'], 0)
+        self.assertEqual(stats['D_mean'], 0)
+
+    def test_pedicel_and_outer_are_excluded(self):
+        chili = self.make_chili([30] * 11)
+        before = chili.get_deviation_stats()
+        chili.mask_fruit[:, 60:70] = 255
+        chili.mask_pedicel[:, 60:65] = 255
+        chili.mask_outer[:, 65:70] = 255
+        chili.spine = chili._calculate_spine()
+        self.assertEqual(chili.get_deviation_stats(), before)
+
+    def test_empty_or_single_row_region_returns_zeros(self):
+        chili = self.make_chili([30])
+        self.assertEqual(chili.get_deviation_stats(), {'D_L': 0., 'D_R': 0., 'D_mean': 0.})
+        chili.mask_fruit[:] = 0
+        chili.spine = chili._calculate_spine()
+        self.assertEqual(chili.get_deviation_stats(), {'D_L': 0., 'D_R': 0., 'D_mean': 0.})
+
+
 class _NoDetectionModel:
     def predict(self, _path):
         return []
@@ -47,15 +118,13 @@ class FruitBodyLengthTests(unittest.TestCase):
         chili.length_fruit = chili.get_length_fruit()
         self.assertEqual(chili.length_fruit, 6.0)
         self.assertAlmostEqual(chili.get_curvature_index(), 1 - (5.9 + 1e-6) / (6.0 + 1e-6), places=4)
-        # Width and asymmetry keep their previous measurement protocols.
+        # Width keeps its previous measurement protocol.
         widths = chili.get_width_fruit()
-        asymmetry = chili.get_asymmetry_index()
         chili.mask_pedicel[:] = 0
         chili.spine = chili._calculate_spine()
         self.assertEqual(chili.spine['y_min'], 5)
         self.assertGreater(chili.get_length_fruit(), 6.0)
         self.assertEqual(chili.get_width_fruit(), widths)
-        self.assertEqual(chili.get_asymmetry_index(), asymmetry)
 
     def test_empty_body_has_no_length_spine(self):
         chili = self.make_chili()
@@ -91,16 +160,16 @@ class TerminologyTests(unittest.TestCase):
         expected = [
             "FL", "FW_mean", "FW_min", "FW_max", "FA", "MA",
             "MT_mean", "MT_min", "MT_max", "PA", "SA", "SC",
-            "MAF", "SCR", "FCI", "FAI", "MWI",
+            "MAF", "SCR", "FCI", "D_L", "D_R", "D_mean", "MWI",
         ]
         self.assertEqual([item.symbol for item in CANONICAL_TRAITS], expected)
-        self.assertEqual(len(set(expected)), 17)
+        self.assertEqual(len(set(expected)), 19)
         units = {item.symbol: item.unit for item in CANONICAL_TRAITS}
         self.assertEqual(units["FL"], "mm")
         self.assertEqual(units["FA"], "mm^2")
         self.assertEqual(units["SC"], "seed")
         self.assertEqual(units["FCI"], "dimensionless")
-        self.assertEqual(len(CANONICAL_TRAIT_COLUMNS), 17)
+        self.assertEqual(len(CANONICAL_TRAIT_COLUMNS), 19)
 
     def test_chili_exposes_all_canonical_values_without_removing_legacy_names(self):
         chili = Chili.__new__(Chili)
@@ -123,7 +192,7 @@ class TerminologyTests(unittest.TestCase):
         chili.mesocarp_area_fraction = 0.6
         chili.seed_density = 0.25
         chili.curvature_index = 0.9
-        chili.asymmetry_index = 0.1
+        chili.deviation_stats = {"D_L": -0.2, "D_R": 0.4, "D_mean": 0.1}
         chili.mesocarp_wrinkle_index = 0.05
 
         values = chili.get_trait_values()
@@ -136,6 +205,7 @@ class TerminologyTests(unittest.TestCase):
         self.assertNotIn("FPR", values)
         self.assertEqual(values["SCR"], chili.seed_density)
         self.assertEqual(values["FCI"], chili.curvature_index)
+        self.assertEqual({k: values[k] for k in chili.deviation_stats}, chili.deviation_stats)
         self.assertEqual(list(row), list(CANONICAL_TRAIT_COLUMNS))
 
     def test_maf_excludes_outer_and_pedicel_and_is_scale_independent(self):

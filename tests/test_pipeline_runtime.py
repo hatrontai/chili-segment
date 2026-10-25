@@ -39,18 +39,22 @@ class RuntimeTests(unittest.TestCase):
         for kwargs in ({'wrinkle_tau_mm':float('nan')}, {'det_conf':float('inf')}, {'seg_imgsz':0}, {'det_crop_top':-1}, {'seg_imgsz':12.5}):
             with self.subTest(kwargs=kwargs),self.assertRaises(ValueError): PipelineConfig(**kwargs)
 
-    def test_web_cli_share_values_and_keep_existing_column_schemas(self):
+    def test_web_cli_share_signed_deviation_values_and_column_schema(self):
         c=SimpleNamespace(id=2,name='sample_2.jpg',length_fruit=10,width_fruit=4,
             width_fruit_stats={'min':2,'max':6},area_fruit=30,mesocarp_area=12,
             mesocarp_thickness_stats={'min_mesocarp_thickness':1,'avg_mesocarp_thickness':2,'max_mesocarp_thickness':3},
             placenta_area=5,seed_stats={'sum':7,'min':1,'max':3,'avg':2,'std':.5},number_seeds=4,
-            mesocarp_area_fraction=.6,seed_density=.25,curvature_index=.9,asymmetry_index=.1,mesocarp_wrinkle_index=.05,
+            mesocarp_area_fraction=.6,seed_density=.25,curvature_index=.9,deviation_stats={"D_L":-.2,"D_R":.4,"D_mean":.1},mesocarp_wrinkle_index=.05,
             width_bbox=4,height_bbox=10,width_fruit_9seg=4,length_fruit_9seg=10,fruit_body_area=20,
             redness=30,color_uniformity=5,ratio=.1,scale_source='qr')
         web=feature_row(c);cli=feature_row(c,'sample');cli.pop('Name Root')
         self.assertEqual(web,cli)
-        self.assertEqual(len(feature_columns()),32)
-        self.assertEqual(len(feature_columns(True)),33)
+        self.assertEqual(web["Maximum Leftward Deviation (D_L)"], -.2)
+        self.assertEqual(web["Maximum Rightward Deviation (D_R)"], .4)
+        self.assertEqual(web["Mean Signed Deviation (D_mean)"], .1)
+        self.assertNotIn("Fruit Asymmetry Index (FAI)", web)
+        self.assertEqual(len(feature_columns()),34)
+        self.assertEqual(len(feature_columns(True)),35)
 
     def test_exports_create_directory_and_manifest_tracks_input_and_weights(self):
         with TemporaryDirectory() as tmp:

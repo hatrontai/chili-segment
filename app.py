@@ -392,7 +392,7 @@ def _build_feature_card(raw_crop, segmented_crop, chili):
         f"Mesocarp Wrinkle Index (MWI): {_format_metric(chili.mesocarp_wrinkle_index, 5)}",
         f"Fruit Curvature Index (FCI): {_format_metric(chili.curvature_index, 4)}  (0 = straight; higher = more curved)",
         f"Seed-to-Cavity Area Ratio (SCR): {_format_metric(chili.seed_density, 4)}",
-        f"Fruit Asymmetry Index (FAI): {_format_metric(chili.asymmetry_index, 4)}",
+        f"D_L / D_R / D_mean: {_format_metric(chili.deviation_stats['D_L'], 4)} / {_format_metric(chili.deviation_stats['D_R'], 4)} / {_format_metric(chili.deviation_stats['D_mean'], 4)}",
     ]
 
     text_x = image_width * 2 + 18

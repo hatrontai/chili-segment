@@ -22,7 +22,9 @@ CANONICAL_TRAITS = (
     TraitDefinition("MAF", "Mesocarp Area Fraction", "dimensionless"),
     TraitDefinition("SCR", "Seed-to-Cavity Area Ratio", "dimensionless"),
     TraitDefinition("FCI", "Fruit Curvature Index", "dimensionless"),
-    TraitDefinition("FAI", "Fruit Asymmetry Index", "dimensionless"),
+    TraitDefinition("D_L", "Maximum Leftward Deviation", "dimensionless"),
+    TraitDefinition("D_R", "Maximum Rightward Deviation", "dimensionless"),
+    TraitDefinition("D_mean", "Mean Signed Deviation", "dimensionless"),
     TraitDefinition("MWI", "Mesocarp Wrinkle Index", "dimensionless"),
 )
 
@@ -56,7 +58,9 @@ def trait_values_by_symbol(chili):
         "MAF": chili.mesocarp_area_fraction,
         "SCR": chili.seed_density,
         "FCI": chili.curvature_index,
-        "FAI": chili.asymmetry_index,
+        "D_L": chili.deviation_stats["D_L"],
+        "D_R": chili.deviation_stats["D_R"],
+        "D_mean": chili.deviation_stats["D_mean"],
         "MWI": chili.mesocarp_wrinkle_index,
     }
 

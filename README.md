@@ -187,7 +187,7 @@ included in `Fruits.items`, Web results, or CLI CSV output.
 
 ### Feature Extraction
 
-`src/object.py` builds a `Fruits` object for each image and a `Chili` object for each detected fruit. The 17 primary traits use one canonical registry in `src/traits.py`:
+`src/object.py` builds a `Fruits` object for each image and a `Chili` object for each detected fruit. The 19 primary traits use one canonical registry in `src/traits.py`:
 
 | Trait | Symbol | Unit | Legacy source |
 | --- | --- | --- | --- |
@@ -206,7 +206,9 @@ included in `Fruits.items`, Web results, or CLI CSV output.
 | Mesocarp Area Fraction | `MAF` | dimensionless | `mesocarp_area_fraction` |
 | Seed-to-Cavity Area Ratio | `SCR` | dimensionless | `seed_density` |
 | Fruit Curvature Index | `FCI` | dimensionless | `curvature_index` |
-| Fruit Asymmetry Index | `FAI` | dimensionless | `asymmetry_index` |
+| Maximum Leftward Deviation | `D_L` | dimensionless | `deviation_stats["D_L"]` |
+| Maximum Rightward Deviation | `D_R` | dimensionless | `deviation_stats["D_R"]` |
+| Mean Signed Deviation | `D_mean` | dimensionless | `deviation_stats["D_mean"]` |
 | Mesocarp Wrinkle Index | `MWI` | dimensionless | `mesocarp_wrinkle_index` |
 
 Call `Chili.get_trait_values()` to obtain these values keyed by symbol. Web and CLI CSV outputs use the same human-readable columns, such as `Fruit Length (FL)` and `Seed-to-Cavity Area Ratio (SCR)`. Legacy attributes remain available for compatibility. Bounding boxes, 9-segment measurements, individual-seed statistics, color metrics, and scale metadata remain as extended output fields.
@@ -246,7 +248,7 @@ by mesocarp. `FBA` excludes outer and pedicel; the mesocarp excludes endocarp,
 outer, PCP, and seed. MAF uses unrounded pixel areas, is independent of spatial
 scale, and is reported to four decimals in [0, 1]; an empty body yields `None`.
 It is a 2D area fraction, not mass density or a validated predictor of yield.
-MAF replaces FPR in the 17 primary Web/CLI traits. The old
+MAF replaces FPR in the primary Web/CLI traits. The old
 `flesh_placenta_ratio` attribute and method remain available to existing callers
 with their original meaning, but are absent from the canonical output.
 The legacy `seed_density` attribute is the Seed-to-Cavity Area Ratio
@@ -300,10 +302,9 @@ Threshold-mask confidence 1.0 is a synthetic presence flag, not a probability.
 
 The pipeline measures prepared camera images of longitudinal sections. FL uses the fruit-body mask (whole fruit minus outer and separated pedicel);
 FCI uses the same body spine and FL. Failed pedicel separation can leave pedicel
-pixels in the body. FAI retains a separately fitted spine on whole fruit minus
-outer. FA includes the complete selected mask. Canonical FW uses eight interior
-horizontal chords of the whole-fruit mask, as described above. FCI uses the rounded discrete FL and can be below
-one for a straight finite mask. MWI uses closed external fruit-body contours;
+pixels in the body. Signed deviation uses this same body mask and spine. FA includes the complete selected mask. Canonical FW uses eight interior
+horizontal chords of the whole-fruit mask, as described above. FCI uses the rounded discrete FL and can be slightly above
+zero for a straight finite mask. MWI uses closed external fruit-body contours;
 raster orientation, global curvature and cut edges can contribute. Color
 Uniformity is population SD of the OpenCV zero-centered a channel: higher means
 less uniform. Its region includes endocarp pixels and has no white-balance
@@ -328,3 +329,25 @@ transform. One-to-one matching uses IoU >= 0.5; Dice and boundary F (2 original
 pixel tolerance) are reported for matched objects, with FP/FN counts separately.
 Split membership and color strata are unknown. This diagnostic is not a held-out
 paper experiment and does not replace reported results or physical trait validation.
+
+
+### Signed body deviation (replaces FAI)
+
+`get_deviation_stats()` reuses `self.spine` from FL/FCI, fitted on whole fruit
+minus outer and pedicel. The straight chord joining its endpoints defines the
+reference axis. At each nonempty spine row, clamp that axis to the row's left
+and right boundaries, then measure W_L and W_R in pixels.
+The signed deviation is d = (W_R - W_L)/(W_R + W_L + epsilon_A), with
+epsilon_A = 1e-6 pixel. D_L = min(0, min(d)), D_R = max(0, max(d)), and D_mean
+is the arithmetic mean across all nonempty spine rows. Single-pixel rows
+contribute zero and count in that mean; empty rows do not. Negative means left,
+positive means right. Opposite deviations can cancel in the mean. No usable
+spine yields zeros, marked unavailable by measurement diagnostics.
+Values are rounded to four decimal places, so output may display -1 or 1 even
+though epsilon makes the unrounded values strictly between those limits.
+
+Web/CLI outputs now contain 19 canonical traits: D_L, D_R and D_mean replace
+the old FAI column. Consumers of old CSV schemas must update their mappings;
+previous FAI data cannot be relabeled as signed deviation. Re-run measurements
+to generate the new results. FCI uses 1 - (D_chord + 1e-6)/(FL + 1e-6), with
+lengths in mm; smaller values mean straighter fruit bodies.

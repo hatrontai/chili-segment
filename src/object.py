@@ -967,7 +967,7 @@ class Chili(Fruits):
         # 3 Advanced Features
         self.curvature_index = self.get_curvature_index()
         self.seed_density = self.get_seed_density()
-        self.asymmetry_index = self.get_asymmetry_index()
+        self.deviation_stats = self.get_deviation_stats()
 
     def _separate_pedicel_and_placenta(self):
         mask_pcp = self.mask_pcp
@@ -1396,36 +1396,45 @@ class Chili(Fruits):
         density = seed_px / cavity_px
         return round(float(density), 4)
 
-    def get_asymmetry_index(self):
-        mask_body = cv2.subtract(self.mask_fruit, self.mask_outer)
-        # FAI retains its original region and fitted axis independently of FL.
-        asymmetry_spine = self._calculate_spine(mask=mask_body)
-        if asymmetry_spine is None:
-            return 0
-        y_vals = asymmetry_spine["y_vals"]
-        valid = asymmetry_spine["valid"]
-        poly = np.poly1d(asymmetry_spine["coeffs"])
-        sum_diffs = 0
-        total_area = 0
-        for y, is_valid in zip(y_vals, valid):
-            if not is_valid:
+    def get_deviation_stats(self):
+        """Signed row deviations about the endpoint chord of the FL/FCI spine.
+
+        Widths use the fruit-body mask, with epsilon_A = 1e-6 pixel.
+        Each nonempty spine row has equal weight, including zero-width rows.
+        """
+        zero = {"D_L": 0.0, "D_R": 0.0, "D_mean": 0.0}
+        if self.spine is None:
+            return zero
+        y_min, y_max = self.spine["y_min"], self.spine["y_max"]
+        if y_max <= y_min:
+            return zero
+        body_mask = cv2.subtract(self.mask_fruit, self.mask_outer)
+        body_mask = cv2.subtract(body_mask, self.mask_pedicel)
+        poly = np.poly1d(self.spine["coeffs"])
+        x_start, x_end = float(poly(y_min)), float(poly(y_max))
+        epsilon_a_px = 1e-6
+        deviations = []
+        for y, valid in zip(self.spine["y_vals"], self.spine["valid"]):
+            if not valid:
                 continue
-            row = mask_body[y]
-            xs = np.where(row > 0)[0]
-            if len(xs) == 0:
+            xs = np.flatnonzero(body_mask[y])
+            if not len(xs):
                 continue
-            x_spine = poly(y)
-            x_left = xs[0]
-            x_right = xs[-1]
-            x_spine_clamped = max(x_left, min(x_right, x_spine))
-            width_left = x_spine_clamped - x_left
-            width_right = x_right - x_spine_clamped
-            sum_diffs += abs(width_left - width_right)
-            total_area += width_left + width_right
-        if total_area == 0:
-            return 0
-        asymmetry = sum_diffs / total_area
-        return round(float(asymmetry), 4)
+            x_left, x_right = float(xs[0]), float(xs[-1])
+            x_axis = x_start + (x_end - x_start) * (y - y_min) / (y_max - y_min)
+            x_split = max(x_left, min(x_right, x_axis))
+            width_left = x_split - x_left
+            width_right = x_right - x_split
+            deviations.append((width_right - width_left) / (
+                width_right + width_left + epsilon_a_px
+            ))
+        if not deviations:
+            return zero
+        return {
+            "D_L": round(float(min(0.0, min(deviations))), 4),
+            "D_R": round(float(max(0.0, max(deviations))), 4),
+            "D_mean": round(float(np.mean(deviations)), 4),
+        }
 
     def segm(self, threshold=56):
         #Preserve the original threshold helper for external callers.
@@ -1458,7 +1467,7 @@ class Chili(Fruits):
         )
 
     def get_trait_values(self):
-        """Return the 17 canonical phenotypic traits keyed by their symbols."""
+        """Return the 19 canonical phenotypic traits keyed by their symbols."""
         return trait_values_by_symbol(self)
 
     def get_measurement_diagnostics(self):
@@ -1481,11 +1490,11 @@ class Chili(Fruits):
         if self.scale_source == "dataset_mean_fallback":
             flag(('FL', 'FW_mean', 'FW_min', 'FW_max', 'FA', 'MA', 'MT_mean', 'MT_min', 'MT_max', 'PA', 'SA', 'FCI', 'MWI'), 'dataset_mean_scale_fallback')
         if self.spine is None:
-            flag(('FL', 'FCI', 'FAI'), 'missing_spine_legacy_zero', 'unavailable')
+            flag(('FL', 'FCI', 'D_L', 'D_R', 'D_mean'), 'missing_spine_legacy_zero', 'unavailable')
         if not np.any(cv2.subtract(self.mask_fruit, self.mask_outer)):
             flag(('FW_mean', 'FW_min', 'FW_max'), 'empty_width_mask_legacy_zero', 'unavailable')
         if self._pedicel_diagnostics.get('status') in {'failed', 'missing_pcp'}:
-            flag(('PA', 'MAF', 'SCR', 'MWI', 'MT_mean', 'MT_min', 'MT_max'), 'pedicel_separation_' + self._pedicel_diagnostics['status'])
+            flag(('PA', 'MAF', 'SCR', 'MWI', 'MT_mean', 'MT_min', 'MT_max', 'D_L', 'D_R', 'D_mean'), 'pedicel_separation_' + self._pedicel_diagnostics['status'])
         if self._thickness_diagnostics.get('used_prefilter_samples'):
             flag(('MT_mean', 'MT_min', 'MT_max'), 'thickness_prefilter_fallback')
         if self.mesocarp_thickness_stats['avg_mesocarp_thickness'] is None:
