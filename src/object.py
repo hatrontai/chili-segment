@@ -1380,7 +1380,10 @@ class Chili(Fruits):
         x_bottom = poly(y_max)
         straight_dist_px = math.sqrt((x_top - x_bottom) ** 2 + (y_min - y_max) ** 2)
         straight_dist_mm = straight_dist_px * self.ratio
-        curvature = straight_dist_mm / self.length_fruit
+        epsilon_mm = 1e-6
+        curvature = 1.0 - (straight_dist_mm + epsilon_mm) / (
+            self.length_fruit + epsilon_mm
+        )
         return round(float(np.clip(curvature, 0.0, 1.0)), 4)
 
     def get_seed_density(self):

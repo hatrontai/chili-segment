@@ -46,7 +46,7 @@ class FruitBodyLengthTests(unittest.TestCase):
         self.assertEqual((chili.spine['y_min'], chili.spine['y_max']), (20, 79))
         chili.length_fruit = chili.get_length_fruit()
         self.assertEqual(chili.length_fruit, 6.0)
-        self.assertAlmostEqual(chili.get_curvature_index(), 59 / 60, places=4)
+        self.assertAlmostEqual(chili.get_curvature_index(), 1 - (5.9 + 1e-6) / (6.0 + 1e-6), places=4)
         # Width and asymmetry keep their previous measurement protocols.
         widths = chili.get_width_fruit()
         asymmetry = chili.get_asymmetry_index()
@@ -168,7 +168,7 @@ class TerminologyTests(unittest.TestCase):
         chili.mask_placenta[2, :2] = 255
         self.assertEqual(chili.get_seed_density(), 0.2)
 
-    def test_fci_is_chord_over_arc_and_one_means_straight(self):
+    def test_fci_is_regularized_chord_complement_and_zero_means_straight(self):
         chili = Chili.__new__(Chili)
         chili.ratio = 0.1
         chili.spine = {
@@ -177,9 +177,20 @@ class TerminologyTests(unittest.TestCase):
             "y_max": 10,
         }
         chili.length_fruit = 1.0
-        self.assertEqual(chili.get_curvature_index(), 1.0)
+        self.assertEqual(chili.get_curvature_index(), 0.0)
         chili.length_fruit = 2.0
         self.assertEqual(chili.get_curvature_index(), 0.5)
+        chili.length_fruit = 4.0
+        self.assertEqual(chili.get_curvature_index(), 0.75)
+        # At tiny scales the epsilon must occur in both numerator and denominator.
+        chili.ratio = 1e-7
+        chili.length_fruit = 3e-6
+        self.assertEqual(chili.get_curvature_index(), 0.5)
+        chili.length_fruit = 0.0
+        self.assertEqual(chili.get_curvature_index(), 0.0)
+        chili.spine = None
+        self.assertEqual(chili.get_curvature_index(), 0.0)
+
 
     def test_mesocarp_excludes_all_non_mesocarp_classes(self):
         shape = (60, 80)
