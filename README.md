@@ -298,10 +298,11 @@ prove biological seed absence. Thickness diagnostics expose valid/filtered/used
 sample counts and the prefilter fallback. MWI exposes contour/segment counts.
 Threshold-mask confidence 1.0 is a synthetic presence flag, not a probability.
 
-The pipeline measures prepared camera images of longitudinal sections. FL/FW
-exclude outer but may include pedicel; FA includes the complete selected mask.
-Canonical FW uses all nonempty rows after a 5% spatial trim, rather than the
-auxiliary 9-segment output. FCI uses the rounded discrete FL and can be below
+The pipeline measures prepared camera images of longitudinal sections. FL uses the fruit-body mask (whole fruit minus outer and separated pedicel);
+FCI uses the same body spine and FL. Failed pedicel separation can leave pedicel
+pixels in the body. FAI retains a separately fitted spine on whole fruit minus
+outer. FA includes the complete selected mask. Canonical FW uses eight interior
+horizontal chords of the whole-fruit mask, as described above. FCI uses the rounded discrete FL and can be below
 one for a straight finite mask. MWI uses closed external fruit-body contours;
 raster orientation, global curvature and cut edges can contribute. Color
 Uniformity is population SD of the OpenCV zero-centered a channel: higher means

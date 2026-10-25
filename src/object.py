@@ -1096,8 +1096,11 @@ class Chili(Fruits):
         path = Path(self.path)
         return f"{path.stem}_{self.id}.jpg"
 
-    def _calculate_spine(self):
-        mask = cv2.subtract(self.mask_fruit, self.mask_outer)
+    def _calculate_spine(self, mask=None):
+        """Fit the length/curvature spine to the fruit body by default."""
+        if mask is None:
+            mask = cv2.subtract(self.mask_fruit, self.mask_outer)
+            mask = cv2.subtract(mask, self.mask_pedicel)
         nonzero_y, nonzero_x = np.where(mask > 0)
         if len(nonzero_y) == 0:
             return None
@@ -1391,12 +1394,14 @@ class Chili(Fruits):
         return round(float(density), 4)
 
     def get_asymmetry_index(self):
-        if not hasattr(self, "spine") or self.spine is None:
-            return 0
         mask_body = cv2.subtract(self.mask_fruit, self.mask_outer)
-        y_vals = self.spine["y_vals"]
-        valid = self.spine["valid"]
-        poly = np.poly1d(self.spine["coeffs"])
+        # FAI retains its original region and fitted axis independently of FL.
+        asymmetry_spine = self._calculate_spine(mask=mask_body)
+        if asymmetry_spine is None:
+            return 0
+        y_vals = asymmetry_spine["y_vals"]
+        valid = asymmetry_spine["valid"]
+        poly = np.poly1d(asymmetry_spine["coeffs"])
         sum_diffs = 0
         total_area = 0
         for y, is_valid in zip(y_vals, valid):

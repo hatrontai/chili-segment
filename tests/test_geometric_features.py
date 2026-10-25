@@ -26,6 +26,45 @@ class _NoDetectionModel:
         return []
 
 
+class FruitBodyLengthTests(unittest.TestCase):
+    def make_chili(self):
+        chili = Chili.__new__(Chili)
+        chili.ratio = 0.1
+        chili.mask_fruit = np.zeros((100, 80), dtype=np.uint8)
+        chili.mask_fruit[20:80, 20:60] = 255
+        chili.mask_fruit[5:20, 20:25] = 255
+        chili.mask_fruit[80:90, 20:60] = 255
+        chili.mask_pedicel = np.zeros_like(chili.mask_fruit)
+        chili.mask_pedicel[5:20, 20:25] = 255
+        chili.mask_outer = np.zeros_like(chili.mask_fruit)
+        chili.mask_outer[80:90, 20:60] = 255
+        return chili
+
+    def test_length_excludes_pedicel_and_outer_and_curvature_uses_body_endpoints(self):
+        chili = self.make_chili()
+        chili.spine = chili._calculate_spine()
+        self.assertEqual((chili.spine['y_min'], chili.spine['y_max']), (20, 79))
+        chili.length_fruit = chili.get_length_fruit()
+        self.assertEqual(chili.length_fruit, 6.0)
+        self.assertAlmostEqual(chili.get_curvature_index(), 59 / 60, places=4)
+        # Width and asymmetry keep their previous measurement protocols.
+        widths = chili.get_width_fruit()
+        asymmetry = chili.get_asymmetry_index()
+        chili.mask_pedicel[:] = 0
+        chili.spine = chili._calculate_spine()
+        self.assertEqual(chili.spine['y_min'], 5)
+        self.assertGreater(chili.get_length_fruit(), 6.0)
+        self.assertEqual(chili.get_width_fruit(), widths)
+        self.assertEqual(chili.get_asymmetry_index(), asymmetry)
+
+    def test_empty_body_has_no_length_spine(self):
+        chili = self.make_chili()
+        chili.mask_pedicel = chili.mask_fruit.copy()
+        chili.spine = chili._calculate_spine()
+        self.assertIsNone(chili.spine)
+        self.assertEqual(chili.get_length_fruit(), 0)
+
+
 class ScaleFallbackTests(unittest.TestCase):
     def test_missing_qr_uses_documented_dataset_mean(self):
         with TemporaryDirectory() as directory:
