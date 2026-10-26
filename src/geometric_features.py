@@ -846,7 +846,7 @@ def segment_polyline_by_exact_chord(points, chord_px):
         end = point_at_arc(points, cumulative, end_s)
         chord = float(np.linalg.norm(end - start))
         arc = float(end_s - start_s)
-        if chord <= 1e-10:
+        if chord <= 1e-10 or arc <= 1e-10:
             continue
         segments.append(
             {
@@ -857,7 +857,7 @@ def segment_polyline_by_exact_chord(points, chord_px):
                 "arc_px": arc,
                 "chord_px": chord,
                 "curvature_ratio": arc / chord,
-                "curvature_excess": arc / chord - 1.0,
+                "wrinkle_score": float(np.clip(1.0 - chord / arc, 0.0, 1.0)),
             }
         )
     return points, cumulative, segments
@@ -869,22 +869,22 @@ def calculate_mesocarp_wrinkle_index(
     mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
     diagnostics=None,
 ):
-    """Return mean contour curvature excess for chili minus pedicel/outer."""
+    """Return mean one-minus-chord/arc on fruit-body contour segments."""
     if ratio <= 0 or mesocarp_wrinkle_segment_threshold_mm <= 0:
         raise ValueError(
             "ratio and mesocarp_wrinkle_segment_threshold_mm must be greater than zero"
         )
     chord_px = mesocarp_wrinkle_segment_threshold_mm / ratio
-    excesses = []
+    scores = []
     runs = extract_chili_body_contours(mesocarp_data)
     for run in runs:
         _, _, segments = segment_polyline_by_exact_chord(run, chord_px)
-        excesses.extend(segment["curvature_excess"] for segment in segments)
+        scores.extend(segment["wrinkle_score"] for segment in segments)
     if diagnostics is not None:
-        diagnostics.update(contour_count=len(runs), segment_count=len(excesses),
+        diagnostics.update(contour_count=len(runs), segment_count=len(scores),
                            tau_mm=float(mesocarp_wrinkle_segment_threshold_mm),
-                           status="measured" if excesses else "unavailable",
-                           maximum_segment_excess=float(max(excesses)) if excesses else None)
-    if not excesses:
+                           status="measured" if scores else "unavailable",
+                           maximum_segment_wrinkle=float(max(scores)) if scores else None)
+    if not scores:
         return None
-    return round(float(np.mean(excesses)), 5)
+    return round(float(np.mean(scores)), 5)

@@ -569,6 +569,24 @@ class FruitWidthTests(unittest.TestCase):
 
 
 class WrinkleTests(unittest.TestCase):
+    def test_segment_score_uses_chord_over_arc_complement(self):
+        # A 3-4-5 bend: arc 7 and chord 5, not the old 7/5 - 1.
+        points = np.array([[0.,0.],[3.,0.],[3.,4.]])
+        segments = segment_polyline_by_exact_chord(points, 10.)[2]
+        self.assertEqual(len(segments), 1)
+        self.assertAlmostEqual(segments[0]['wrinkle_score'], 2/7)
+        self.assertGreaterEqual(segments[0]['wrinkle_score'], 0)
+        self.assertLess(segments[0]['wrinkle_score'], 1)
+
+    def test_runtime_averages_segment_scores_with_equal_weights(self):
+        from src.geometric_features import calculate_mesocarp_wrinkle_index
+        segments = [{'wrinkle_score': 0.0}, {'wrinkle_score': 0.375}]
+        diagnostics = {}
+        with patch('src.geometric_features.extract_chili_body_contours', return_value=[np.zeros((3,2))]), patch('src.geometric_features.segment_polyline_by_exact_chord', return_value=(None,None,segments)):
+            value = calculate_mesocarp_wrinkle_index({}, .1, diagnostics=diagnostics)
+        self.assertEqual(value, 0.1875)
+        self.assertEqual(diagnostics['maximum_segment_wrinkle'], .375)
+
     def test_straight_is_zero_and_zigzag_is_larger(self):
         straight = np.column_stack([np.linspace(0, 100, 101), np.zeros(101)])
         zigzag = np.array(
@@ -588,10 +606,10 @@ class WrinkleTests(unittest.TestCase):
         straight_segments = segment_polyline_by_exact_chord(straight, 20.0)[2]
         zigzag_segments = segment_polyline_by_exact_chord(zigzag, 20.0)[2]
         straight_wrinkle = np.mean(
-            [segment["curvature_excess"] for segment in straight_segments]
+            [segment["wrinkle_score"] for segment in straight_segments]
         )
         zigzag_wrinkle = np.mean(
-            [segment["curvature_excess"] for segment in zigzag_segments]
+            [segment["wrinkle_score"] for segment in zigzag_segments]
         )
 
         self.assertAlmostEqual(float(straight_wrinkle), 0.0)
@@ -672,7 +690,7 @@ class WrinkleTests(unittest.TestCase):
         for segment in segments:
             self.assertGreater(segment["chord_px"], 1.0)
             self.assertLessEqual(segment["chord_px"], 35.0 + 1e-6)
-            self.assertLess(segment["curvature_excess"], 3.0)
+            self.assertLess(segment["wrinkle_score"], 3.0)
 
     def test_closed_loop_smaller_than_threshold_has_valid_segments(self):
         angles = np.linspace(0, 2 * np.pi, 361)
@@ -682,7 +700,7 @@ class WrinkleTests(unittest.TestCase):
         for segment in segments:
             self.assertGreater(segment["chord_px"], 1.0)
             self.assertLessEqual(segment["chord_px"], 50.0)
-            self.assertLess(segment["curvature_excess"], 1.0)
+            self.assertLess(segment["wrinkle_score"], 1.0)
 
 
 if __name__ == "__main__":

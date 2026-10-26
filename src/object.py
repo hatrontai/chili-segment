@@ -1454,7 +1454,7 @@ class Chili(Fruits):
     def get_mesocarp_wrinkle_index(
         self, mesocarp_wrinkle_segment_threshold_mm=None
     ):
-        """Calculate mean curvature excess on chili minus pedicel/outer."""
+        """Calculate mean one-minus-chord/arc on the fruit-body contour."""
         threshold = (
             self.mesocarp_wrinkle_segment_threshold_mm
             if mesocarp_wrinkle_segment_threshold_mm is None

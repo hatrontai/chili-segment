@@ -369,3 +369,11 @@ FA now equals gamma² times the foreground pixel count in the fruit-body mask
 field reports the same area. MAF continues to divide mesocarp pixels by body
 pixels before rounding; it now corresponds to MA/FA. Existing FA results must
 be recomputed before using them with the revised definition.
+
+### Bounded MWI — 2026-10-26
+
+MWI is the arithmetic mean of 1 - L_chord/L_arc over valid body-contour
+segments. The 5 mm chord threshold and contour segmentation remain in use.
+Unrounded scores are in [0,1); reported values are rounded to five decimals.
+The segment field is `wrinkle_score`, and the diagnostic maximum is
+`maximum_segment_wrinkle`. Recompute old MWI results for this definition.
