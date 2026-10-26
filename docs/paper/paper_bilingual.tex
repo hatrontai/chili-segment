@@ -688,14 +688,12 @@ Tỷ số diện tích hạt trên khoang quả ($SCR$) sử dụng diện tích
 \end{viet}
 
 \begin{equation}
- SCR=\begin{cases}\dfrac{|M_{\mathrm{seed}}|}{|M_{\mathrm{endocarp}}|},&|M_{\mathrm{endocarp}}|>0,\\[4pt]
- 0,&|M_{\mathrm{endocarp}}|=0.
- \end{cases}
+ SCR=\frac{|M_{\mathrm{seed}}|}{|M_{\mathrm{endocarp}}|+\varepsilon_{\mathrm{SCR}}}.
 \end{equation}
-Here, $|M_{\mathrm{seed}}|$ and $|M_{\mathrm{endocarp}}|$ are the numbers of foreground pixels in the union seed mask and the current endocarp mask, respectively. The common factor $\gamma^2$ cancels in the area ratio, so $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
+Here, $|M_{\mathrm{seed}}|$ and $|M_{\mathrm{endocarp}}|$ are the numbers of foreground pixels in the union seed mask and the current endocarp mask, respectively. The small positive constant $\varepsilon_{\mathrm{SCR}}=10^{-6}$ is specified in pixel-count units and prevents a zero denominator. It is distinct from $\varepsilon_{\mathrm{C}}$ and $\varepsilon_{\mathrm{A}}$ used above. $SCR$ is dimensionless. Before display rounding, it lies in $[0,1)$ when the seed mask is contained in the endocarp mask. It is zero for an empty seed mask; an empty endocarp mask with detected seed pixels yields a large finite value. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
 
 \begin{viet}
-Trong đó, $|M_{\mathrm{seed}}|$ và $|M_{\mathrm{endocarp}}|$ lần lượt là số pixel tiền cảnh thuộc mask hợp các hạt và mask nội quả bì hiện tại. Hệ số chung $\gamma^2$ triệt tiêu trong tỷ số diện tích, nên $SCR$ không có thứ nguyên. Chỉ số nằm trong $[0,1]$ khi mask hạt nằm hoàn toàn trong mask nội quả bì; các dự đoán phân đoạn độc lập có thể cho giá trị lớn hơn một. Tử số bằng $SA/\gamma^2$ trước khi làm tròn $SA$ để hiển thị, vì cả hai phép đo sử dụng cùng mask hợp của các hạt.
+Trong đó, $|M_{\mathrm{seed}}|$ và $|M_{\mathrm{endocarp}}|$ lần lượt là số pixel tiền cảnh thuộc mask hợp các hạt và mask nội quả bì hiện tại. Hằng số dương nhỏ $\varepsilon_{\mathrm{SCR}}=10^{-6}$ được biểu diễn theo đơn vị số pixel và giúp tránh mẫu số bằng 0. Hằng số này được ký hiệu riêng để phân biệt với $\varepsilon_{\mathrm{C}}$ và $\varepsilon_{\mathrm{A}}$ ở trên. $SCR$ không có thứ nguyên. Trước khi làm tròn để hiển thị, chỉ số nằm trong $[0,1)$ khi mask hạt nằm hoàn toàn trong mask nội quả bì. Chỉ số bằng 0 khi mask hạt rỗng; nếu mask nội quả bì rỗng nhưng vẫn có pixel hạt, tỷ số nhận giá trị hữu hạn lớn. Tử số bằng $SA/\gamma^2$ trước khi làm tròn $SA$ để hiển thị, vì cả hai phép đo sử dụng cùng mask hợp của các hạt.
 \end{viet}
 
 

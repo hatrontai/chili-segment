@@ -10,8 +10,9 @@ The PDF and TeX sources in this directory record the paper update of 26 October
 - `SC` counts nonempty YOLO seed instances after confidence filtering and
   clipping to the fruit region. Overlap does not merge instances for counting.
 - `SCR` uses the same union area in its numerator before display rounding,
-  divided by the current endocarp mask area (`M_cavity = M_endocarp`). An empty
-  endocarp mask returns zero; the ratio is not clamped to one.
+  divided by the current endocarp pixel count plus `epsilon_SCR = 1e-6`
+  (`M_cavity = M_endocarp`). An empty seed mask returns zero. An empty endocarp
+  with detected seed pixels produces a large finite ratio; it is not clamped.
 
 The editable bilingual source is `paper_bilingual.tex`; `source_english.tex`
 contains the English version. Images, fonts, and bibliography are included so

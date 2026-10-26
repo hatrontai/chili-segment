@@ -254,6 +254,8 @@ class TerminologyTests(unittest.TestCase):
         chili.mask_seed[:] = 255
         self.assertEqual(chili.get_seed_density(), 2.0)
         chili.mask_endocarp[:] = 0
+        self.assertEqual(chili.get_seed_density(), 16_000_000.0)
+        chili.mask_seed[:] = 0
         self.assertEqual(chili.get_seed_density(), 0)
 
     def test_fci_is_regularized_chord_complement_and_zero_means_straight(self):

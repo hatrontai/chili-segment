@@ -1423,12 +1423,11 @@ class Chili(Fruits):
         return round(float(np.clip(curvature, 0.0, 1.0)), 4)
 
     def get_seed_density(self):
-        """Seed union area divided by the current endocarp mask area."""
+        """Seed/endocarp pixel-count ratio with epsilon_SCR = 1e-6."""
         seed_px = (self.mask_seed > 0).sum()
         cavity_px = (self.mask_endocarp > 0).sum()
-        if cavity_px == 0:
-            return 0
-        density = seed_px / cavity_px
+        epsilon_scr_px = 1e-6
+        density = seed_px / (cavity_px + epsilon_scr_px)
         return round(float(density), 4)
 
     def get_deviation_stats(self):

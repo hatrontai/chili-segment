@@ -372,11 +372,9 @@ Here, $|M_{\mathrm{seed}}|$ is the number of foreground pixels in the union seed
 \subsection*{Extract Seed-to-Cavity Area Ratio ($SCR$)}
 The Seed-to-Cavity Area Ratio ($SCR$) uses the area of the union seed mask, which counts each covered pixel once. Let $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}$. The runtime computes
 \begin{equation}
- SCR=\begin{cases}\dfrac{|M_{\mathrm{seed}}|}{|M_{\mathrm{endocarp}}|},&|M_{\mathrm{endocarp}}|>0,\\[4pt]
- 0,&|M_{\mathrm{endocarp}}|=0.
- \end{cases}
+ SCR=\frac{|M_{\mathrm{seed}}|}{|M_{\mathrm{endocarp}}|+\varepsilon_{\mathrm{SCR}}}.
 \end{equation}
-Here, $|M_{\mathrm{seed}}|$ and $|M_{\mathrm{endocarp}}|$ are the numbers of foreground pixels in the union seed mask and the current endocarp mask, respectively. The common factor $\gamma^2$ cancels in the area ratio, so $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
+Here, $|M_{\mathrm{seed}}|$ and $|M_{\mathrm{endocarp}}|$ are the numbers of foreground pixels in the union seed mask and the current endocarp mask, respectively. The small positive constant $\varepsilon_{\mathrm{SCR}}=10^{-6}$ is specified in pixel-count units and prevents a zero denominator. It is distinct from $\varepsilon_{\mathrm{C}}$ and $\varepsilon_{\mathrm{A}}$ used above. $SCR$ is dimensionless. Before display rounding, it lies in $[0,1)$ when the seed mask is contained in the endocarp mask. It is zero for an empty seed mask; an empty endocarp mask with detected seed pixels yields a large finite value. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
 
 \subsection*{Extract Redness and Color Variation}
 Redness is computed from the green--red $a^*$ axis of CIELAB over $M_{\mathrm{pure}}=M_{\mathrm{chili}}\setminus(M_{\mathrm{seed}}\cup M_{\mathrm{outer}}\cup M_{\mathrm{PCP}})$ \cite{cielab}:

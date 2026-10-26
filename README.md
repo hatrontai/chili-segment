@@ -222,9 +222,11 @@ instance's area, so `SA` need not equal `SC * avg`. The previous watershed
 measurement remains available explicitly via `get_seed_stats(method="watershed")`
 for comparisons.
 
-For `SCR`, the cavity is the current endocarp mask: `SCR = |M_seed| / |M_endocarp|`.
-An empty endocarp mask returns zero. The ratio is not clamped; independent seed
-and endocarp predictions can yield a value above one.
+For `SCR`, the cavity is the current endocarp mask:
+`SCR = |M_seed| / (|M_endocarp| + epsilon_SCR)`, with `epsilon_SCR = 1e-6`
+in pixel-count units. This prevents division by zero without a separate branch.
+An empty seed mask returns zero; an empty endocarp with detected seed pixels
+produces a large finite ratio. The ratio is not clamped.
 
 The corresponding bilingual paper and buildable TeX sources are versioned in
 [`docs/paper`](docs/paper/README.md).
