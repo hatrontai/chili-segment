@@ -296,13 +296,12 @@ trait columns/values are preserved; diagnostic statuses are separate. A
 `computed` status means that an algorithm returned a value, not that a physical
 reference validated that value. Failure-related legacy zeros retain their
 numeric value and are identified by status/reasons. Empty seed masks do not
-prove biological seed absence. Thickness diagnostics expose valid/filtered/used
-sample counts and the prefilter fallback. MWI exposes contour/segment counts.
+prove biological seed absence. Thickness diagnostics expose sampled, successful and used sample counts. MWI exposes contour/segment counts.
 Threshold-mask confidence 1.0 is a synthetic presence flag, not a probability.
 
 The pipeline measures prepared camera images of longitudinal sections. FL uses the fruit-body mask (whole fruit minus outer and separated pedicel);
 FCI uses the same body spine and FL. Failed pedicel separation can leave pedicel
-pixels in the body. Signed deviation uses this same body mask and spine. FA includes the complete selected mask. Canonical FW uses eight interior
+pixels in the body. Signed deviation uses this same body mask and spine. FA measures the body mask after excluding outer and pedicel. Canonical FW uses eight interior
 horizontal chords of the whole-fruit mask, as described above. FCI uses the rounded discrete FL and can be slightly above
 zero for a straight finite mask. MWI uses closed external fruit-body contours;
 raster orientation, global curvature and cut edges can contribute. Color
@@ -351,3 +350,22 @@ the old FAI column. Consumers of old CSV schemas must update their mappings;
 previous FAI data cannot be relabeled as signed deviation. Re-run measurements
 to generate the new results. FCI uses 1 - (D_chord + 1e-6)/(FL + 1e-6), with
 lengths in mm; smaller values mean straighter fruit bodies.
+
+
+### Smoothed-mask thickness — 2026-10-26
+
+Thickness boundaries, signed-distance field and skeleton all use the same
+morphologically smoothed mesocarp mask. No raw-mask skeleton fallback is used.
+All successfully measured samples enter the min/mean/max statistics; spatial
+and local-outlier screening and the prefilter fallback are no longer applied.
+The two-stage angular search remains the numerical implementation of shortest
+valid boundary-to-boundary section selection. Mesocarp area continues to use
+the original cleaned mask. Recompute thickness results after this change.
+
+### Fruit area FA — 2026-10-26
+
+FA now equals gamma² times the foreground pixel count in the fruit-body mask
+(whole fruit minus outer and pedicel). The legacy extended `fruit_body_area`
+field reports the same area. MAF continues to divide mesocarp pixels by body
+pixels before rounding; it now corresponds to MA/FA. Existing FA results must
+be recomputed before using them with the revised definition.

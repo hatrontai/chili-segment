@@ -127,7 +127,7 @@ def smooth_mesocarp_for_skeleton(
     closing_mm=SKELETON_CLOSING_MM,
     opening_mm=SKELETON_OPENING_MM,
 ):
-    """Smooth only the skeleton source; measurements still use raw mesocarp."""
+    """Smooth the common mask used for thickness boundaries and skeleton."""
     closing_size_px = max(3, int(round(closing_mm / ratio)))
     opening_size_px = max(2, int(round(opening_mm / ratio)))
     closed = ndi.binary_closing(
@@ -163,6 +163,9 @@ def build_mesocarp_data(chili, ratio):
         keep = [index + 1 for index, size in enumerate(sizes) if size >= 30]
         mesocarp = np.isin(labels, keep)
 
+    raw_mesocarp = mesocarp.copy()
+    mesocarp = smooth_mesocarp_for_skeleton(raw_mesocarp, ratio)
+
     boundary = mesocarp & ~ndi.binary_erosion(mesocarp, structure=np.ones((3, 3)))
     inner_reference = endocarp | pcp | seed
     outer_reference = outer | ~fruit_mask
@@ -179,22 +182,12 @@ def build_mesocarp_data(chili, ratio):
         ~mesocarp
     )
 
-    raw_skeleton = skeletonize(mesocarp)
-    mesocarp_for_skeleton = smooth_mesocarp_for_skeleton(mesocarp, ratio)
-    smoothed_skeleton = skeletonize(mesocarp_for_skeleton)
-    minimum_pixels = max(20, int(0.50 * np.count_nonzero(raw_skeleton)))
-    use_smoothed = np.count_nonzero(smoothed_skeleton) >= minimum_pixels
-    source_skeleton = smoothed_skeleton if use_smoothed else raw_skeleton
-    skeleton = longest_backbone_skeleton(source_skeleton)
+    skeleton = longest_backbone_skeleton(skeletonize(mesocarp))
     measurement_skeleton = skeleton & mesocarp
-    if np.count_nonzero(measurement_skeleton) < 20:
-        source_skeleton = raw_skeleton
-        skeleton = longest_backbone_skeleton(raw_skeleton)
-        measurement_skeleton = skeleton
-        use_smoothed = False
 
     return {
         "mesocarp": mesocarp,
+        "raw_mesocarp": raw_mesocarp,
         "boundary": boundary,
         "inner_reference": inner_reference,
         "outer_reference": outer_reference,
@@ -205,10 +198,10 @@ def build_mesocarp_data(chili, ratio):
         "pedicel_exclusion": pedicel_exclusion,
         "wrinkle_mask": fruit_mask & ~(pedicel | outer),
         "signed_distance": signed_distance,
-        "mesocarp_for_skeleton": mesocarp_for_skeleton,
+        "mesocarp_for_skeleton": mesocarp,
         "skeleton": skeleton,
         "measurement_skeleton": measurement_skeleton,
-        "skeleton_source": "smoothed_mesocarp" if use_smoothed else "raw_mesocarp",
+        "skeleton_source": "smoothed_mesocarp",
     }
 
 
@@ -620,11 +613,11 @@ def filter_clean_thickness_points(
 
 
 def calculate_mesocarp_thickness_stats(mesocarp_data, ratio, diagnostics=None):
-    """Return min/average/max mesocarp thickness from accepted 1 mm samples."""
+    """Return min/average/max over all successfully measured 1 mm samples."""
     measured = measure_mesocarp_thickness(mesocarp_data, ratio)
     if diagnostics is not None:
         diagnostics.update(sampled_count=len(measured), valid_count=0,
-                           clean_count=0, used_count=0, used_prefilter_samples=False,
+                           used_count=0,
                            status="unavailable")
     if measured.empty or "measurement_status" not in measured:
         return {
@@ -639,14 +632,9 @@ def calculate_mesocarp_thickness_stats(mesocarp_data, ratio, diagnostics=None):
             "avg_mesocarp_thickness": None,
             "max_mesocarp_thickness": None,
         }
-    clean = filter_clean_thickness_points(valid, mesocarp_data, ratio)
-    minimum_clean_count = max(20, int(0.30 * len(valid)))
-    used = clean if len(clean) >= minimum_clean_count else valid
+    used = valid
     if diagnostics is not None:
-        diagnostics.update(valid_count=len(valid), clean_count=len(clean),
-                           used_count=len(used), minimum_clean_count=minimum_clean_count,
-                           used_prefilter_samples=len(clean) < minimum_clean_count,
-                           status="prefilter_fallback" if len(clean) < minimum_clean_count else "measured")
+        diagnostics.update(valid_count=len(valid), used_count=len(used), status="measured")
     return {
         "min_mesocarp_thickness": round(float(used.thickness_mm.min()), 2),
         "avg_mesocarp_thickness": round(float(used.thickness_mm.mean()), 2),

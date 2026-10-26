@@ -69,15 +69,16 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(json.loads(meta.read_text())['inputs'],manifest['inputs'])
             self.assertTrue(manifest['source_files'])
 
-    def test_thickness_diagnostic_records_prefilter_fallback_without_changing_stats(self):
-        measured=pd.DataFrame({'measurement_status':['measured']*3,'thickness_mm':[1.,2.,3.]})
+    def test_thickness_aggregates_all_successful_samples_without_screening(self):
+        measured=pd.DataFrame({'measurement_status':['measured']*25+['ray_failed'],
+                               'thickness_mm':[1.]*24+[100.,float('nan')]})
         diagnostics={}
-        with patch('src.geometric_features.measure_mesocarp_thickness',return_value=measured),patch('src.geometric_features.filter_clean_thickness_points',return_value=measured.iloc[:1]):
-            plain=calculate_mesocarp_thickness_stats({},.1)
+        with patch('src.geometric_features.measure_mesocarp_thickness',return_value=measured), patch('src.geometric_features.filter_clean_thickness_points',side_effect=AssertionError('screening removed')):
             observed=calculate_mesocarp_thickness_stats({},.1,diagnostics)
-        self.assertEqual(observed,plain)
-        self.assertEqual((diagnostics['valid_count'],diagnostics['clean_count'],diagnostics['used_count']),(3,1,3))
-        self.assertTrue(diagnostics['used_prefilter_samples'])
+        self.assertEqual(observed, {'min_mesocarp_thickness':1., 'avg_mesocarp_thickness':4.96, 'max_mesocarp_thickness':100.})
+        self.assertEqual((diagnostics['sampled_count'],diagnostics['valid_count'],diagnostics['used_count']),(26,25,25))
+        self.assertEqual(diagnostics['status'], 'measured')
+        self.assertNotIn('used_prefilter_samples',diagnostics)
 
     def test_empty_wrinkle_has_unavailable_status(self):
         diagnostics={}

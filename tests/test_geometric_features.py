@@ -126,6 +126,16 @@ class FruitBodyLengthTests(unittest.TestCase):
         self.assertGreater(chili.get_length_fruit(), 6.0)
         self.assertEqual(chili.get_width_fruit(), widths)
 
+    def test_fruit_area_is_body_area_and_exclusions_are_not_double_counted(self):
+        chili = self.make_chili()
+        self.assertEqual(chili.get_area(), 24.0)
+        self.assertEqual(chili.get_area(), chili.get_fruit_body_area())
+        # Overlapping exclusion masks must be subtracted as a union.
+        chili.mask_pedicel |= chili.mask_outer
+        self.assertEqual(chili.get_area(), 24.0)
+        chili.mask_pedicel = chili.mask_fruit.copy()
+        self.assertEqual(chili.get_area(), 0.0)
+
     def test_empty_body_has_no_length_spine(self):
         chili = self.make_chili()
         chili.mask_pedicel = chili.mask_fruit.copy()
@@ -285,7 +295,18 @@ class TerminologyTests(unittest.TestCase):
 
         data = build_mesocarp_data(chili, ratio=0.1)
 
-        self.assertFalse(bool(np.any(data["mesocarp"] & excluded)))
+        self.assertFalse(bool(np.any(data["raw_mesocarp"] & excluded)))
+
+    def test_placenta_area_counts_full_mask_including_outer_and_seed_overlap(self):
+        chili = Chili.__new__(Chili)
+        chili.ratio = 0.2
+        chili.mask_placenta = np.zeros((10,10), dtype=np.uint8)
+        chili.mask_placenta[2:7, 3:7] = 255
+        chili.mask_outer = chili.mask_placenta.copy()
+        chili.mask_seed = chili.mask_placenta.copy()
+        self.assertEqual(chili.get_placenta_area(), 0.8)
+        chili.mask_placenta[:] = 0
+        self.assertEqual(chili.get_placenta_area(), 0.0)
 
     def test_pcp_is_partitioned_into_pedicel_region_and_placenta(self):
         chili = Chili.__new__(Chili)
@@ -413,6 +434,33 @@ class ThicknessTests(unittest.TestCase):
             "signed_distance": ndi.distance_transform_edt(mesocarp)
             - ndi.distance_transform_edt(~mesocarp),
         }
+
+    def test_smoothed_mask_controls_both_boundaries_and_skeleton(self):
+        from types import SimpleNamespace
+        raw = np.zeros((101,101), dtype=np.uint8)
+        raw[40:61, 10:91] = 255
+        smooth = np.zeros_like(raw, dtype=bool)
+        smooth[45:56, 10:91] = True
+        zero = np.zeros_like(raw)
+        endocarp = zero.copy(); endocarp[:40, :] = 255
+        fruit = zero.copy(); fruit[:61, :] = 255
+        chili = SimpleNamespace(mask_fruit=fruit, mask_endocarp=endocarp,
+                                mask_outer=zero, mask_pcp=zero, mask_seed=zero,
+                                mask_pedicel=zero, mask_mesocarp=raw)
+        with patch('src.geometric_features.smooth_mesocarp_for_skeleton',return_value=smooth):
+            data = build_mesocarp_data(chili,.1)
+        np.testing.assert_array_equal(data['mesocarp'], smooth)
+        self.assertFalse(np.any(data['measurement_skeleton'] & ~smooth))
+        self.assertFalse(np.any(data['boundary'] & ~smooth))
+        self.assertLess(data['signed_distance'][42,50],0)
+        result = measure_skeleton_point((50.,50.),data)
+        self.assertAlmostEqual(result['length_px'],11.,places=2)
+        np.testing.assert_array_equal(chili.mask_mesocarp,raw)
+        # An erased wall stays unavailable instead of reverting to the raw mask.
+        with patch('src.geometric_features.smooth_mesocarp_for_skeleton',return_value=np.zeros_like(smooth)):
+            empty = build_mesocarp_data(chili,.1)
+        self.assertFalse(empty['measurement_skeleton'].any())
+        self.assertIsNone(calculate_mesocarp_thickness_stats(empty,.1)['avg_mesocarp_thickness'])
 
     def test_straight_and_diagonal_mesocarp(self):
         for angle, expected_px in ((0.0, 11.0), (27.0, 10.0)):

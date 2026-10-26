@@ -945,12 +945,11 @@ class Chili(Fruits):
         # additionally exposes min/max/avg through width_fruit_stats.
         self.width_fruit = self.width_fruit_stats["avg"]
 
-        # Keep the original area name and semantics: area of the complete
-        # fruit mask, scaled by the QR-derived ratio.
+        # FA measures the fruit body after removing outer and pedicel.
         self.area_fruit = self.get_area()
 
         self.mesocarp_area = self.get_mesocarp_area()
-        self.fruit_body_area = self.get_fruit_body_area()
+        self.fruit_body_area = self.area_fruit
         self.mesocarp_area_fraction = self.get_mesocarp_area_fraction()
         self.placenta_area = self.get_placenta_area()
         self.mesocarp_thickness_stats = self.get_mesocarp_thickness()
@@ -1238,7 +1237,7 @@ class Chili(Fruits):
         return cv2.subtract(mask, self.mask_seed)
 
     def get_mesocarp_area_fraction(self):
-        """Return MA/FBA from unrounded pixel areas; undefined for an empty body.
+        """Return MA/FA from unrounded pixel areas; undefined for an empty body.
 
         The body excludes outer and pedicel. The common area scale cancels,
         avoiding precision loss from dividing rounded mm² measurements.
@@ -1257,8 +1256,8 @@ class Chili(Fruits):
         return cv2.subtract(mask, self.mask_seed)
 
     def get_placenta_area(self):
-        mask = self._get_clean_placenta_mask()
-        return round((mask / 255).sum() * (self.ratio**2), 2)
+        """Area of the full placenta mask after pedicel separation."""
+        return round(float(np.count_nonzero(self.mask_placenta)) * self.ratio**2, 2)
 
     def get_flesh_placenta_ratio(self):
         """Return A_flesh/A_placenta when at least 10 placenta pixels exist."""
@@ -1449,8 +1448,8 @@ class Chili(Fruits):
         return self.width_fruit_stats["avg"], self.length_fruit
 
     def get_area(self):
-        #Calculate complete fruit area using the original public name.
-        return round((self.mask_fruit > 0).sum() * (self.ratio ** 2), 2)
+        """Fruit area FA in mm², measured on the body mask."""
+        return self.get_fruit_body_area()
 
     def get_mesocarp_wrinkle_index(
         self, mesocarp_wrinkle_segment_threshold_mm=None
@@ -1495,8 +1494,6 @@ class Chili(Fruits):
             flag(('FW_mean', 'FW_min', 'FW_max'), 'empty_width_mask_legacy_zero', 'unavailable')
         if self._pedicel_diagnostics.get('status') in {'failed', 'missing_pcp'}:
             flag(('PA', 'MAF', 'SCR', 'MWI', 'MT_mean', 'MT_min', 'MT_max', 'D_L', 'D_R', 'D_mean'), 'pedicel_separation_' + self._pedicel_diagnostics['status'])
-        if self._thickness_diagnostics.get('used_prefilter_samples'):
-            flag(('MT_mean', 'MT_min', 'MT_max'), 'thickness_prefilter_fallback')
         if self.mesocarp_thickness_stats['avg_mesocarp_thickness'] is None:
             flag(('MT_mean', 'MT_min', 'MT_max'), 'no_valid_boundary_ray_pairs', 'unavailable')
         if self.mesocarp_wrinkle_index is None:
