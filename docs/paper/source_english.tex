@@ -199,10 +199,10 @@ M_{\mathrm{body}}=M_{\mathrm{chili}}\setminus\left(M_{\mathrm{pedicel}}\cup M_{\
 Here, $M_{\mathrm{body}}$ is the binary fruit-body mask. Fruit area is calculated as:
 
 \begin{equation}
-FA=\gamma^2\sum_{(x,y)}M_{\mathrm{body}}(x,y).
+FA=\gamma^2|M_{\mathrm{body}}|.
 \end{equation}
 
-Here, $FA$ is Fruit Area in mm$^2$.
+Here, $FA$ is Fruit Area in mm$^2$. Throughout the mask-area formulas, $|M|$ denotes the number of foreground pixels belonging to the binary mask $M$ (pixels with nonzero mask values). Thus, $|M_{\mathrm{body}}|$ counts the pixels in the fruit-body mask. Multiplication by $\gamma^2$ converts this pixel count to area in mm$^2$.
 
 \subsection*{Extraction of Fruit Length ($FL$) and Fruit Width ($FW$)}
 
@@ -297,9 +297,9 @@ To construct the mesocarp mask, the outer mask is first subtracted from the whol
 \end{equation}
 The mesocarp area ($MA$) is therefore:
 \begin{equation}
-    MA = \gamma^2 \sum_{(x,y)} M_{\mathrm{mesocarp}}(x,y).
+    MA=\gamma^2|M_{\mathrm{mesocarp}}|.
 \end{equation}
-Here, $MA$ is Mesocarp Area in mm$^2$, and $M_{\mathrm{mesocarp}}$ is the binary mask of the retained mesocarp tissue.
+Here, $MA$ is Mesocarp Area in mm$^2$, and $|M_{\mathrm{mesocarp}}|$ is the number of foreground pixels belonging to the retained mesocarp mask.
 
 \subsection*{Extract Mesocarp Thickness}
 
@@ -339,7 +339,7 @@ Mesocarp Area Fraction ($MAF$) measures the proportion of the fruit-body cross-s
 \begin{equation}
  MAF=\frac{|M_{\mathrm{mesocarp}}|}{|M_{\mathrm{body}}|}=\frac{MA^*}{FA^*},
 \end{equation}
-where $MA^*$ and $FA^*$ denote the corresponding physical areas before rounding for display. The common spatial calibration factor cancels. For valid masks, $MAF\in[0,1]$.
+where $|M_{\mathrm{mesocarp}}|$ and $|M_{\mathrm{body}}|$ count the foreground pixels in the mesocarp and fruit-body masks, respectively; $MA^*$ and $FA^*$ denote the corresponding physical areas before rounding for display. The common spatial calibration factor cancels. For valid masks, $MAF\in[0,1]$.
 
 
 \subsection*{Extract Mesocarp Wrinkle Index ($MWI$)}
@@ -363,20 +363,20 @@ M_{\mathrm{seed}}=\bigcup_{j=1}^{N_s}M_{\mathrm{seed},j}.
 The total seed area is calculated from this union mask, while seed count is obtained directly from the retained YOLO instances:
 
 \begin{align}
-SA&=\gamma^2\sum_{x,y}M_{\mathrm{seed}}(x,y),\\
+SA&=\gamma^2|M_{\mathrm{seed}}|,\\
 SC&=N_s.
 \end{align}
-Here, $SA$ is expressed in mm$^2$, and $SC$ is the number of detected seeds. Each pixel in the union mask contributes to $SA$ only once, including pixels shared by multiple seed instances. Overlapping instances remain separate seeds for $SC$. When no seed instances are retained, $M_{\mathrm{seed}}$ is empty and $SA=SC=0$.
+Here, $|M_{\mathrm{seed}}|$ is the number of foreground pixels in the union seed mask, $SA$ is expressed in mm$^2$, and $SC$ is the number of detected seeds. Each pixel in the union mask contributes to $SA$ only once, including pixels shared by multiple seed instances. Overlapping instances remain separate seeds for $SC$. When no seed instances are retained, $M_{\mathrm{seed}}$ is empty and $SA=SC=0$.
 
 
 \subsection*{Extract Seed-to-Cavity Area Ratio ($SCR$)}
 The Seed-to-Cavity Area Ratio ($SCR$) uses the area of the union seed mask, which counts each covered pixel once. Let $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}$. The runtime computes
 \begin{equation}
- SCR=\begin{cases}|M_{\mathrm{seed}}|/|M_{\mathrm{cavity}}|,&|M_{\mathrm{cavity}}|>0,\\
- 0,&|M_{\mathrm{cavity}}|=0.
+ SCR=\begin{cases}\dfrac{|M_{\mathrm{seed}}|}{|M_{\mathrm{endocarp}}|},&|M_{\mathrm{endocarp}}|>0,\\[4pt]
+ 0,&|M_{\mathrm{endocarp}}|=0.
  \end{cases}
 \end{equation}
-Thus, $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
+Here, $|M_{\mathrm{seed}}|$ and $|M_{\mathrm{endocarp}}|$ are the numbers of foreground pixels in the union seed mask and the current endocarp mask, respectively. The common factor $\gamma^2$ cancels in the area ratio, so $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
 
 \subsection*{Extract Redness and Color Variation}
 Redness is computed from the green--red $a^*$ axis of CIELAB over $M_{\mathrm{pure}}=M_{\mathrm{chili}}\setminus(M_{\mathrm{seed}}\cup M_{\mathrm{outer}}\cup M_{\mathrm{PCP}})$ \cite{cielab}:

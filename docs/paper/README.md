@@ -39,3 +39,8 @@ The subsequent SCR denominator update passed all 40 geometric-feature tests,
 including seeds and placenta outside endocarp, ratios above one, and empty
 endocarp masks. The PDF has been rebuilt with `M_cavity = M_endocarp`; existing
 SCR result tables still require recalculation with this denominator.
+
+All mask-area formulas use `|M|` for the number of foreground (nonzero) pixels
+belonging to mask `M`. FA, MA, PA, and SA are `gamma² |M|` for their respective
+masks; MAF and SCR use ratios of these pixel counts. This notation and its
+English/Vietnamese explanations are consistent throughout the paper.

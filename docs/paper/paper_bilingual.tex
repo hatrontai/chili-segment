@@ -356,13 +356,13 @@ Trong đó, $M_{\mathrm{body}}$ là mask nhị phân của thân quả. Diện t
 \end{viet}
 
 \begin{equation}
-FA=\gamma^2\sum_{(x,y)}M_{\mathrm{body}}(x,y).
+FA=\gamma^2|M_{\mathrm{body}}|.
 \end{equation}
 
-Here, $FA$ is Fruit Area in mm$^2$.
+Here, $FA$ is Fruit Area in mm$^2$. Throughout the mask-area formulas, $|M|$ denotes the number of foreground pixels belonging to the binary mask $M$ (pixels with nonzero mask values). Thus, $|M_{\mathrm{body}}|$ counts the pixels in the fruit-body mask. Multiplication by $\gamma^2$ converts this pixel count to area in mm$^2$.
 
 \begin{viet}
-Trong đó, $FA$ là diện tích quả tính bằng mm$^2$.
+Trong đó, $FA$ là diện tích quả tính bằng mm$^2$. Trong các công thức diện tích mask, $|M|$ biểu diễn số pixel tiền cảnh thuộc mask nhị phân $M$ (các pixel có giá trị mask khác 0). Do đó, $|M_{\mathrm{body}}|$ là số pixel thuộc mask thân quả. Nhân số pixel này với $\gamma^2$ sẽ thu được diện tích theo mm$^2$.
 \end{viet}
 
 \subsection*{Extraction of Fruit Length ($FL$) and Fruit Width ($FW$) / {\color{viColor} Trích xuất chiều dài quả ($FL$) và chiều rộng quả ($FW$)}}
@@ -537,12 +537,12 @@ Do đó, diện tích trung quả bì ($MA$) là:
 \end{viet}
 
 \begin{equation}
-    MA = \gamma^2 \sum_{(x,y)} M_{\mathrm{mesocarp}}(x,y).
+    MA=\gamma^2|M_{\mathrm{mesocarp}}|.
 \end{equation}
-Here, $MA$ is Mesocarp Area in mm$^2$, and $M_{\mathrm{mesocarp}}$ is the binary mask of the retained mesocarp tissue.
+Here, $MA$ is Mesocarp Area in mm$^2$, and $|M_{\mathrm{mesocarp}}|$ is the number of foreground pixels belonging to the retained mesocarp mask.
 
 \begin{viet}
-Trong đó, $MA$ là diện tích trung quả bì tính bằng mm$^2$ và $M_{\mathrm{mesocarp}}$ là mask nhị phân của phần mô trung quả bì được giữ lại.
+Trong đó, $MA$ là diện tích trung quả bì tính bằng mm$^2$ và $|M_{\mathrm{mesocarp}}|$ là số pixel tiền cảnh thuộc mask mô trung quả bì được giữ lại.
 \end{viet}
 
 \subsection*{Extract Mesocarp Thickness / {\color{viColor} Trích xuất độ dày trung quả bì}}
@@ -621,10 +621,10 @@ Tỷ phần diện tích trung quả bì ($MAF$) đo tỷ lệ diện tích trun
 \begin{equation}
  MAF=\frac{|M_{\mathrm{mesocarp}}|}{|M_{\mathrm{body}}|}=\frac{MA^*}{FA^*},
 \end{equation}
-where $MA^*$ and $FA^*$ denote the corresponding physical areas before rounding for display. The common spatial calibration factor cancels. For valid masks, $MAF\in[0,1]$.
+where $|M_{\mathrm{mesocarp}}|$ and $|M_{\mathrm{body}}|$ count the foreground pixels in the mesocarp and fruit-body masks, respectively; $MA^*$ and $FA^*$ denote the corresponding physical areas before rounding for display. The common spatial calibration factor cancels. For valid masks, $MAF\in[0,1]$.
 
 \begin{viet}
-trong đó $MA^*$ và $FA^*$ biểu diễn các diện tích vật lý tương ứng trước khi làm tròn để hiển thị. Hệ số hiệu chuẩn không gian chung được triệt tiêu. Với mask hợp lệ, $MAF\in[0,1]$.
+trong đó $|M_{\mathrm{mesocarp}}|$ và $|M_{\mathrm{body}}|$ lần lượt là số pixel tiền cảnh thuộc mask trung quả bì và mask thân quả; $MA^*$ và $FA^*$ biểu diễn các diện tích vật lý tương ứng trước khi làm tròn để hiển thị. Hệ số hiệu chuẩn không gian chung được triệt tiêu. Với mask hợp lệ, $MAF\in[0,1]$.
 \end{viet}
 
 
@@ -670,13 +670,13 @@ Tổng diện tích hạt được tính từ mask hợp này, còn số hạt �
 \end{viet}
 
 \begin{align}
-SA&=\gamma^2\sum_{x,y}M_{\mathrm{seed}}(x,y),\\
+SA&=\gamma^2|M_{\mathrm{seed}}|,\\
 SC&=N_s.
 \end{align}
-Here, $SA$ is expressed in mm$^2$, and $SC$ is the number of detected seeds. Each pixel in the union mask contributes to $SA$ only once, including pixels shared by multiple seed instances. Overlapping instances remain separate seeds for $SC$. When no seed instances are retained, $M_{\mathrm{seed}}$ is empty and $SA=SC=0$.
+Here, $|M_{\mathrm{seed}}|$ is the number of foreground pixels in the union seed mask, $SA$ is expressed in mm$^2$, and $SC$ is the number of detected seeds. Each pixel in the union mask contributes to $SA$ only once, including pixels shared by multiple seed instances. Overlapping instances remain separate seeds for $SC$. When no seed instances are retained, $M_{\mathrm{seed}}$ is empty and $SA=SC=0$.
 
 \begin{viet}
-Trong đó, $SA$ có đơn vị mm$^2$; $SC$ là số hạt phát hiện được. Mỗi pixel trong mask hợp chỉ được tính một lần vào $SA$, kể cả pixel thuộc nhiều instance hạt chồng lấp. Các instance chồng lấp vẫn được tính là các hạt riêng biệt khi xác định $SC$. Khi không có instance hạt nào được giữ lại, $M_{\mathrm{seed}}$ rỗng và $SA=SC=0$.
+Trong đó, $|M_{\mathrm{seed}}|$ là số pixel tiền cảnh thuộc mask hợp các hạt; $SA$ có đơn vị mm$^2$; $SC$ là số hạt phát hiện được. Mỗi pixel trong mask hợp chỉ được tính một lần vào $SA$, kể cả pixel thuộc nhiều instance hạt chồng lấp. Các instance chồng lấp vẫn được tính là các hạt riêng biệt khi xác định $SC$. Khi không có instance hạt nào được giữ lại, $M_{\mathrm{seed}}$ rỗng và $SA=SC=0$.
 \end{viet}
 
 
@@ -688,14 +688,14 @@ Tỷ số diện tích hạt trên khoang quả ($SCR$) sử dụng diện tích
 \end{viet}
 
 \begin{equation}
- SCR=\begin{cases}|M_{\mathrm{seed}}|/|M_{\mathrm{cavity}}|,&|M_{\mathrm{cavity}}|>0,\\
- 0,&|M_{\mathrm{cavity}}|=0.
+ SCR=\begin{cases}\dfrac{|M_{\mathrm{seed}}|}{|M_{\mathrm{endocarp}}|},&|M_{\mathrm{endocarp}}|>0,\\[4pt]
+ 0,&|M_{\mathrm{endocarp}}|=0.
  \end{cases}
 \end{equation}
-Thus, $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
+Here, $|M_{\mathrm{seed}}|$ and $|M_{\mathrm{endocarp}}|$ are the numbers of foreground pixels in the union seed mask and the current endocarp mask, respectively. The common factor $\gamma^2$ cancels in the area ratio, so $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
 
 \begin{viet}
-Do đó, $SCR$ không có thứ nguyên. Chỉ số nằm trong $[0,1]$ khi mask hạt nằm hoàn toàn trong mask nội quả bì; các dự đoán phân đoạn độc lập có thể cho giá trị lớn hơn một. Tử số bằng $SA/\gamma^2$ trước khi làm tròn $SA$ để hiển thị, vì cả hai phép đo sử dụng cùng mask hợp của các hạt.
+Trong đó, $|M_{\mathrm{seed}}|$ và $|M_{\mathrm{endocarp}}|$ lần lượt là số pixel tiền cảnh thuộc mask hợp các hạt và mask nội quả bì hiện tại. Hệ số chung $\gamma^2$ triệt tiêu trong tỷ số diện tích, nên $SCR$ không có thứ nguyên. Chỉ số nằm trong $[0,1]$ khi mask hạt nằm hoàn toàn trong mask nội quả bì; các dự đoán phân đoạn độc lập có thể cho giá trị lớn hơn một. Tử số bằng $SA/\gamma^2$ trước khi làm tròn $SA$ để hiển thị, vì cả hai phép đo sử dụng cùng mask hợp của các hạt.
 \end{viet}
 
 
