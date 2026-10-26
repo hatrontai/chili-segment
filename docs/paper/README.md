@@ -48,5 +48,7 @@ English/Vietnamese explanations are consistent throughout the paper.
 
 The redness section now defines `M_color` and mean CIELAB `a*` as `R`, with
 English/Vietnamese explanations of the measurement region and empty-mask
-behavior. Color variation and the Color Uniformity result row have been removed
-from the paper. The revised PDF section starts on page 19.
+behavior. Color variation has been restored as the population standard deviation of a*,
+with its formula and interpretation on page 20. The Color Uniformity result row
+is included again; larger values mean less uniform redness. The section starts
+on page 19.

@@ -697,7 +697,7 @@ Trong đó, $|M_{\mathrm{seed}}|$ và $|M_{\mathrm{endocarp}}|$ lần lượt l�
 \end{viet}
 
 
-\subsection*{Extract Redness / {\color{viColor} Trích xuất sắc đỏ}}
+\subsection*{Extract Redness and Color Variation / {\color{viColor} Trích xuất sắc đỏ và độ biến thiên màu sắc}}
 Redness is measured over the fruit region after removing the seed, outer, and PCP masks:
 
 \begin{viet}
@@ -722,10 +722,19 @@ Here, $|M_{\mathrm{color}}|$ is the number of foreground pixels in the measureme
 Trong đó, $|M_{\mathrm{color}}|$ là số pixel tiền cảnh thuộc vùng đo. Giá trị $R$ càng lớn biểu thị xu hướng nghiêng về sắc đỏ càng mạnh, trong khi giá trị âm biểu thị xu hướng nghiêng về sắc xanh lá. Vùng đo không loại riêng mask endocarp, do đó các pixel thuộc endocarp còn lại sau phép trừ mask vẫn được sử dụng.
 \end{viet}
 
-This index describes color in the selected image region and is not treated as a direct measurement of ripeness. When the measurement region is empty, the runtime returns zero and marks the color measurement as unavailable.
+Color variation along the green--red axis is quantified by the population standard deviation of $a^*$ within the same measurement region:
 
 \begin{viet}
-Chỉ số này mô tả đặc điểm màu trên vùng ảnh được chọn và không được xem là phép đo trực tiếp mức độ chín. Khi vùng đo rỗng, chương trình trả về 0 và đánh dấu phép đo màu là không khả dụng.
+Độ biến thiên màu sắc trên trục xanh lá--đỏ được lượng hóa bằng độ lệch chuẩn tổng thể của các giá trị $a^*$ trong cùng vùng đo:
+\end{viet}
+
+\begin{equation}
+\sigma_a=\sqrt{\frac{1}{|M_{\mathrm{color}}|}\sum_{(x,y)\in M_{\mathrm{color}}}\left[a^*(x,y)-R\right]^2}.
+\end{equation}
+Here, $\sigma_a$ is reported as Color Uniformity in the outputs and result table. Smaller values indicate more uniform redness, whereas larger values indicate greater variation along the $a^*$ axis. This measure does not include variation in lightness $L^*$ or the yellow--blue coordinate $b^*$. Both indices describe color in the selected image region and are not treated as direct measurements of ripeness. When the measurement region is empty, the runtime returns zero for both indices and marks the color measurement as unavailable.
+
+\begin{viet}
+Trong đó, $\sigma_a$ được báo cáo dưới tên Color Uniformity trong đầu ra và bảng kết quả. Giá trị nhỏ biểu thị sắc đỏ đồng đều hơn; giá trị lớn biểu thị mức biến thiên cao hơn trên trục $a^*$. Phép đo này không bao gồm biến thiên độ sáng $L^*$ hoặc tọa độ vàng--xanh dương $b^*$. Hai chỉ số mô tả đặc điểm màu trên vùng ảnh được chọn và không được xem là phép đo trực tiếp mức độ chín. Khi vùng đo rỗng, chương trình trả về 0 cho cả hai chỉ số và đánh dấu phép đo màu là không khả dụng.
 \end{viet}
 
 
@@ -810,11 +819,12 @@ Bảng~\ref{tab:model_comparison} báo cáo Precision, Recall, mAP@0.5 và mAP@0
  & \tablevi{Seed Count ($SC$)}{Số hạt} & \tablevi{seed}{hạt} & 11.94 $\pm$ 8.11 & 0.00 -- 40.00 & 67.9 \\
  & \tablevi{Seed-to-Cavity Area Ratio ($SCR$)}{Tỷ số diện tích hạt trên khoang quả} & -- & 0.11 $\pm$ 0.08 & 0.00 -- 0.44 & 73.9 \\
 \hline
-\multirow{4}{*}{\tablevi{Shape \& Colorimetric}{Hình dạng \& màu sắc}}
+\multirow{5}{*}{\tablevi{Shape \& Colorimetric}{Hình dạng \& màu sắc}}
  & \tablevi{Fruit Curvature Index ($FCI$)}{Chỉ số độ cong quả} & -- & 0.99 $\pm$ 0.02 & 0.89 -- 1.00 & 1.8 \\
  & \tablevi{Fruit Asymmetry Index ($FAI$)}{Chỉ số bất đối xứng của quả} & -- & 0.05 $\pm$ 0.03 & 0.01 -- 0.21 & 67.1 \\
  & \tablevi{Mesocarp Wrinkle Index ($MWI$)}{Chỉ số độ nhăn trung quả bì} & -- & 0.15 $\pm$ 0.18 & 0.04 -- 1.23 & 119.2 \\
  & \tablevi{Redness}{Sắc đỏ} & -- & 33.51 $\pm$ 4.32 & 12.66 -- 40.53 & 12.9 \\
+ & \tablevi{Color Uniformity}{Độ đồng đều màu sắc} & -- & 7.83 $\pm$ 0.82 & 5.35 -- 10.05 & 10.4 \\
 \hline
 \end{tabular}
 }
