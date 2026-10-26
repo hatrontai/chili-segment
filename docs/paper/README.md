@@ -45,3 +45,8 @@ All mask-area formulas use `|M|` for the number of foreground (nonzero) pixels
 belonging to mask `M`. FA, MA, PA, and SA are `gamma² |M|` for their respective
 masks; MAF and SCR use ratios of these pixel counts. This notation and its
 English/Vietnamese explanations are consistent throughout the paper.
+
+The redness section now defines `M_color` and mean CIELAB `a*` as `R`, with
+English/Vietnamese explanations of the measurement region and empty-mask
+behavior. Color variation and the Color Uniformity result row have been removed
+from the paper. The revised PDF section starts on page 19.

@@ -697,20 +697,35 @@ Trong đó, $|M_{\mathrm{seed}}|$ và $|M_{\mathrm{endocarp}}|$ lần lượt l�
 \end{viet}
 
 
-\subsection*{Extract Redness and Color Variation / {\color{viColor} Trích xuất sắc đỏ và biến thiên màu sắc}}
-Redness is computed from the green--red $a^*$ axis of CIELAB over $M_{\mathrm{pure}}=M_{\mathrm{chili}}\setminus(M_{\mathrm{seed}}\cup M_{\mathrm{outer}}\cup M_{\mathrm{PCP}})$ \cite{cielab}:
+\subsection*{Extract Redness / {\color{viColor} Trích xuất sắc đỏ}}
+Redness is measured over the fruit region after removing the seed, outer, and PCP masks:
 
 \begin{viet}
-Sắc đỏ được tính từ trục xanh lá--đỏ $a^*$ của CIELAB trên vùng $M_{\mathrm{pure}}=M_{\mathrm{chili}}\setminus(M_{\mathrm{seed}}\cup M_{\mathrm{outer}}\cup M_{\mathrm{PCP}})$ \cite{cielab}:
+Sắc đỏ được xác định trên vùng quả sau khi loại các mask hạt, vùng outer và vùng PCP:
 \end{viet}
 
 \begin{equation}
-    Redness = \frac{1}{|M_{pure}|} \sum_{(x,y) \in M_{pure}} a^*(x,y)
+M_{\mathrm{color}}=M_{\mathrm{chili}}\setminus\left(M_{\mathrm{seed}}\cup M_{\mathrm{outer}}\cup M_{\mathrm{PCP}}\right).
 \end{equation}
-Here, $a^*(x,y)$ is obtained by subtracting 128 from the 8-bit OpenCV Lab $a$ channel. The reported Color Uniformity value is the population standard deviation of these $a^*$ values within $M_{\mathrm{pure}}$; larger values indicate greater color variation. Neither metric alone is treated as a validated ripeness-stage measurement.
+The RGB image is converted to CIELAB. The value $a^*(x,y)$ represents the coordinate along the green--red axis at pixel $(x,y)$ and is recovered by subtracting 128 from the $a$ channel of the 8-bit OpenCV Lab image \cite{cielab}. For $|M_{\mathrm{color}}|>0$, mean redness is calculated as:
 
 \begin{viet}
-Trong đó, $a^*(x,y)$ được tính bằng cách trừ 128 khỏi kênh $a$ Lab 8 bit của OpenCV. Giá trị Color Uniformity được báo cáo là độ lệch chuẩn tổng thể của các giá trị $a^*$ này trong $M_{\mathrm{pure}}$; giá trị lớn hơn biểu thị biến thiên màu sắc lớn hơn. Không chỉ tiêu nào, khi sử dụng riêng lẻ, được xem là phép đo giai đoạn chín đã được kiểm chứng.
+Ảnh RGB được chuyển sang không gian màu CIELAB. Giá trị $a^*(x,y)$ biểu diễn tọa độ trên trục xanh lá--đỏ tại pixel $(x,y)$, được khôi phục từ kênh $a$ của ảnh Lab 8 bit trong OpenCV bằng cách trừ 128 \cite{cielab}. Với $|M_{\mathrm{color}}|>0$, sắc đỏ trung bình được tính như sau:
+\end{viet}
+
+\begin{equation}
+R=\frac{1}{|M_{\mathrm{color}}|}\sum_{(x,y)\in M_{\mathrm{color}}}a^*(x,y).
+\end{equation}
+Here, $|M_{\mathrm{color}}|$ is the number of foreground pixels in the measurement region. Higher $R$ values indicate a stronger tendency toward red, whereas negative values indicate a tendency toward green. The endocarp mask is not separately excluded, so endocarp pixels remaining after mask subtraction are included in the measurement.
+
+\begin{viet}
+Trong đó, $|M_{\mathrm{color}}|$ là số pixel tiền cảnh thuộc vùng đo. Giá trị $R$ càng lớn biểu thị xu hướng nghiêng về sắc đỏ càng mạnh, trong khi giá trị âm biểu thị xu hướng nghiêng về sắc xanh lá. Vùng đo không loại riêng mask endocarp, do đó các pixel thuộc endocarp còn lại sau phép trừ mask vẫn được sử dụng.
+\end{viet}
+
+This index describes color in the selected image region and is not treated as a direct measurement of ripeness. When the measurement region is empty, the runtime returns zero and marks the color measurement as unavailable.
+
+\begin{viet}
+Chỉ số này mô tả đặc điểm màu trên vùng ảnh được chọn và không được xem là phép đo trực tiếp mức độ chín. Khi vùng đo rỗng, chương trình trả về 0 và đánh dấu phép đo màu là không khả dụng.
 \end{viet}
 
 
@@ -795,12 +810,11 @@ Bảng~\ref{tab:model_comparison} báo cáo Precision, Recall, mAP@0.5 và mAP@0
  & \tablevi{Seed Count ($SC$)}{Số hạt} & \tablevi{seed}{hạt} & 11.94 $\pm$ 8.11 & 0.00 -- 40.00 & 67.9 \\
  & \tablevi{Seed-to-Cavity Area Ratio ($SCR$)}{Tỷ số diện tích hạt trên khoang quả} & -- & 0.11 $\pm$ 0.08 & 0.00 -- 0.44 & 73.9 \\
 \hline
-\multirow{5}{*}{\tablevi{Shape \& Colorimetric}{Hình dạng \& màu sắc}}
+\multirow{4}{*}{\tablevi{Shape \& Colorimetric}{Hình dạng \& màu sắc}}
  & \tablevi{Fruit Curvature Index ($FCI$)}{Chỉ số độ cong quả} & -- & 0.99 $\pm$ 0.02 & 0.89 -- 1.00 & 1.8 \\
  & \tablevi{Fruit Asymmetry Index ($FAI$)}{Chỉ số bất đối xứng của quả} & -- & 0.05 $\pm$ 0.03 & 0.01 -- 0.21 & 67.1 \\
  & \tablevi{Mesocarp Wrinkle Index ($MWI$)}{Chỉ số độ nhăn trung quả bì} & -- & 0.15 $\pm$ 0.18 & 0.04 -- 1.23 & 119.2 \\
  & \tablevi{Redness}{Sắc đỏ} & -- & 33.51 $\pm$ 4.32 & 12.66 -- 40.53 & 12.9 \\
- & \tablevi{Color Uniformity}{Độ đồng đều màu sắc} & -- & 7.83 $\pm$ 0.82 & 5.35 -- 10.05 & 10.4 \\
 \hline
 \end{tabular}
 }
