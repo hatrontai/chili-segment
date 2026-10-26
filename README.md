@@ -213,6 +213,18 @@ included in `Fruits.items`, Web results, or CLI CSV output.
 
 Call `Chili.get_trait_values()` to obtain these values keyed by symbol. Web and CLI CSV outputs use the same human-readable columns, such as `Fruit Length (FL)` and `Seed-to-Cavity Area Ratio (SCR)`. Legacy attributes remain available for compatibility. Bounding boxes, 9-segment measurements, individual-seed statistics, color metrics, and scale metadata remain as extended output fields.
 
+Total Seed Area (`SA`) is the area of the union of retained YOLO seed masks,
+scaled by `ratio**2` to mm² and rounded to two decimals. Overlapping pixels
+contribute once. Seed Count (`SC`) counts the nonempty YOLO seed instances after
+confidence filtering and clipping to the fruit mask. No automatic watershed
+fallback changes this count. Individual seed min/max/avg/std still use each
+instance's area, so `SA` need not equal `SC * avg`. The previous watershed
+measurement remains available explicitly via `get_seed_stats(method="watershed")`
+for comparisons.
+
+The corresponding bilingual paper and buildable TeX sources are versioned in
+[`docs/paper`](docs/paper/README.md).
+
 Fruit width follows the longitudinal-slice protocol used by this project's
 pepper phenotyping method: divide the segmented fruit mask height into nine
 equal sections using ten horizontal scanlines, measure the eight interior

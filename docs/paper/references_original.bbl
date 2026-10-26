@@ -1,0 +1,127 @@
+\begin{thebibliography}{13}
+\expandafter\ifx\csname natexlab\endcsname\relax\def\natexlab#1{#1}\fi
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\href}[2]{#2}
+\providecommand{\path}[1]{#1}
+\providecommand{\DOIprefix}{doi:}
+\providecommand{\ArXivprefix}{arXiv:}
+\providecommand{\URLprefix}{URL: }
+\providecommand{\Pubmedprefix}{pmid:}
+\providecommand{\doi}[1]{\href{http://dx.doi.org/#1}{\path{#1}}}
+\providecommand{\Pubmed}[1]{\href{pmid:#1}{\path{#1}}}
+\providecommand{\bibinfo}[2]{#2}
+\ifx\xfnm\relax \def\xfnm[#1]{\unskip,\space#1}\fi
+%Type = Article
+\bibitem[{Atefi et~al.(2021)Atefi, Ge, Pitla and Schnable}]{robotic}
+\bibinfo{author}{Atefi, A.}, \bibinfo{author}{Ge, Y.}, \bibinfo{author}{Pitla,
+  S.}, \bibinfo{author}{Schnable, J.}, \bibinfo{year}{2021}.
+\newblock \bibinfo{title}{Robotic technologies for high-throughput plant
+  phenotyping: Contemporary reviews and future perspectives}.
+\newblock \bibinfo{journal}{Frontiers in plant science} \bibinfo{volume}{12},
+  \bibinfo{pages}{611940}.
+%Type = Misc
+\bibitem[{{Commission Internationale de l'{\'E}clairage}(1976)}]{cielab}
+\bibinfo{author}{{Commission Internationale de l'{\'E}clairage}},
+  \bibinfo{year}{1976}.
+\newblock \bibinfo{title}{Colorimetry}.
+\newblock \bibinfo{howpublished}{CIE Publication 15.2}.
+%Type = Article
+\bibitem[{Furbank et~al.(2013)Furbank, Tester and Langridge}]{next}
+\bibinfo{author}{Furbank, R.T.}, \bibinfo{author}{Tester, M.},
+  \bibinfo{author}{Langridge, P.}, \bibinfo{year}{2013}.
+\newblock \bibinfo{title}{Next-generation phenotyping: requirements and
+  strategies for enhancing our understanding of genotype--phenotype
+  relationships and its relevance to crop improvement}.
+\newblock \bibinfo{journal}{Theoretical and Applied Genetics}
+  \bibinfo{volume}{126}, \bibinfo{pages}{863--887}.
+\newblock \DOIprefix\doi{10.1007/s00122-013-2066-0}.
+%Type = Article
+\bibitem[{Gedil and Menkir(2023)}]{gedil}
+\bibinfo{author}{Gedil, M.}, \bibinfo{author}{Menkir, A.},
+  \bibinfo{year}{2023}.
+\newblock \bibinfo{title}{Field phenotyping for african crops: overview and
+  perspectives}.
+\newblock \bibinfo{journal}{Frontiers in Plant Science} \bibinfo{volume}{14},
+  \bibinfo{pages}{1261891}.
+\newblock \DOIprefix\doi{10.3389/fpls.2023.1261891}.
+%Type = Article
+\bibitem[{Ha et~al.(2025)Ha, Pham, Thai, Le, Mai and Chung}]{ver1}
+\bibinfo{author}{Ha, T.T.}, \bibinfo{author}{Pham, T.N.},
+  \bibinfo{author}{Thai, T.T.}, \bibinfo{author}{Le, A.T.},
+  \bibinfo{author}{Mai, T.D.}, \bibinfo{author}{Chung, Y.S.},
+  \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Applying machine learning for chili pepper
+  phenotyping and feature extraction}.
+\newblock \bibinfo{journal}{Smart Agricultural Technology} ,
+  \bibinfo{pages}{101458}.
+%Type = Misc
+\bibitem[{Liu and Xu(2023)}]{ML}
+\bibinfo{author}{Liu, H.}, \bibinfo{author}{Xu, Z.}, \bibinfo{year}{2023}.
+\newblock \bibinfo{title}{Machine vision and machine learning for plant
+  phenotyping and precision agriculture}.
+%Type = Article
+\bibitem[{Liu et~al.(2020)Liu, Liu, Jin, Li, Fu and Yuan}]{x}
+\bibinfo{author}{Liu, W.}, \bibinfo{author}{Liu, C.}, \bibinfo{author}{Jin,
+  J.}, \bibinfo{author}{Li, D.}, \bibinfo{author}{Fu, Y.},
+  \bibinfo{author}{Yuan, X.}, \bibinfo{year}{2020}.
+\newblock \bibinfo{title}{High-throughput phenotyping of morphological seed and
+  fruit characteristics using x-ray computed tomography}.
+\newblock \bibinfo{journal}{Frontiers in plant science} \bibinfo{volume}{11},
+  \bibinfo{pages}{601475}.
+%Type = Article
+\bibitem[{Madec et~al.(2020)Madec, Jin, Soler, Baret and Comar}]{instance}
+\bibinfo{author}{Madec, S.}, \bibinfo{author}{Jin, X.}, \bibinfo{author}{Soler,
+  G.}, \bibinfo{author}{Baret, F.}, \bibinfo{author}{Comar, A.},
+  \bibinfo{year}{2020}.
+\newblock \bibinfo{title}{Instance segmentation for the fine detection of crop
+  and weed by row for autonomous mechanical weeding}.
+\newblock \bibinfo{journal}{Plant Methods} \bibinfo{volume}{16},
+  \bibinfo{pages}{103}.
+\newblock \DOIprefix\doi{10.1186/s13007-020-00622-9}.
+%Type = Misc
+\bibitem[{Meraj et~al.(2023)Meraj, Sharif, Raza, Alabrah, Kadry and
+  Gandomi}]{CV}
+\bibinfo{author}{Meraj, T.}, \bibinfo{author}{Sharif, M.},
+  \bibinfo{author}{Raza, M.}, \bibinfo{author}{Alabrah, A.},
+  \bibinfo{author}{Kadry, S.}, \bibinfo{author}{Gandomi, A.},
+  \bibinfo{year}{2023}.
+\newblock \bibinfo{title}{Computer vision-based plants phenotyping: A
+  comprehensive survey. iscience, 27 (1), 108709}.
+%Type = Article
+\bibitem[{Tabb et~al.(2020)Tabb, Holgu{\'i}n and Naegele}]{cass}
+\bibinfo{author}{Tabb, A.}, \bibinfo{author}{Holgu{\'i}n, G.A.},
+  \bibinfo{author}{Naegele, R.}, \bibinfo{year}{2020}.
+\newblock \bibinfo{title}{Using cameras for precise measurement of
+  two-dimensional plant features: {CASS}}.
+\newblock \bibinfo{journal}{Applications in Plant Sciences}
+  \bibinfo{volume}{8}, \bibinfo{pages}{e11337}.
+\newblock \DOIprefix\doi{10.1002/aps3.11337}.
+%Type = Article
+\bibitem[{Tripodi and Greco(2018)}]{tripodi}
+\bibinfo{author}{Tripodi, P.}, \bibinfo{author}{Greco, B.},
+  \bibinfo{year}{2018}.
+\newblock \bibinfo{title}{Large scale phenotyping provides insight into the
+  diversity of vegetative and reproductive organs in a wide collection of wild
+  and domesticated peppers (capsicum spp.)}.
+\newblock \bibinfo{journal}{Plants} \bibinfo{volume}{7}, \bibinfo{pages}{103}.
+%Type = Inproceedings
+\bibitem[{Wang et~al.(2023)Wang, Bochkovskiy and Liao}]{yolov7}
+\bibinfo{author}{Wang, C.Y.}, \bibinfo{author}{Bochkovskiy, A.},
+  \bibinfo{author}{Liao, H.Y.M.}, \bibinfo{year}{2023}.
+\newblock \bibinfo{title}{{YOLOv7}: Trainable bag-of-freebies sets new
+  state-of-the-art for real-time object detectors}, in:
+  \bibinfo{booktitle}{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition}, pp. \bibinfo{pages}{7464--7475}.
+\newblock \DOIprefix\doi{10.1109/CVPR52729.2023.00721}.
+%Type = Article
+\bibitem[{Zhang et~al.(2025)Zhang, Wang, Liu, Li and He}]{fruitseg}
+\bibinfo{author}{Zhang, W.}, \bibinfo{author}{Wang, X.}, \bibinfo{author}{Liu,
+  W.}, \bibinfo{author}{Li, R.}, \bibinfo{author}{He, Y.},
+  \bibinfo{year}{2025}.
+\newblock \bibinfo{title}{Xfruitseg—a general plant fruit segmentation model
+  based on ct imaging}.
+\newblock \bibinfo{journal}{Plant Methods} \bibinfo{volume}{21},
+  \bibinfo{pages}{45}.
+\newblock \DOIprefix\doi{10.1186/s13007-025-00456-7}.
+
+\end{thebibliography}

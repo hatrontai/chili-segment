@@ -1277,7 +1277,44 @@ class Chili(Fruits):
         est_radius_px = np.sqrt(max(reference_area_px, 0) / np.pi)
         return max(3, int(est_radius_px * 0.8))
 
-    def get_seed_stats(self):
+    def get_seed_stats(self, method="yolo"):
+        """Measure the union seed area and count retained YOLO instances.
+
+        ``yolo`` uses nonempty instance masks already clipped to the fruit by
+        SegmentModel. Total area counts overlapping pixels once; count and
+        min/max/avg/std still describe the individual instances. Missing YOLO
+        instances produce zeros. ``watershed`` explicitly selects the previous
+        algorithm for comparison, never as an automatic counting fallback.
+        """
+        if method not in {"yolo", "watershed"}:
+            raise ValueError("Seed method must be 'yolo' or 'watershed'")
+        if method == "watershed":
+            return self._get_seed_stats_watershed()
+        masks = [
+            md["mask"] > 0
+            for md in self.rseg.get("masks_data", [])
+            if md.get("class_id") == 0
+            and md.get("source", "yolo") == "yolo"
+            and np.any(md["mask"])
+        ]
+        if not masks:
+            return {"sum": 0, "min": 0, "max": 0, "avg": 0, "std": 0, "count": 0}
+        union_mask = np.zeros_like(masks[0], dtype=bool)
+        areas = []
+        for mask in masks:
+            union_mask |= mask
+            areas.append(int(np.count_nonzero(mask)) * self.ratio**2)
+        return {
+            "sum": round(int(np.count_nonzero(union_mask)) * self.ratio**2, 2),
+            "min": round(min(areas), 2),
+            "max": round(max(areas), 2),
+            "avg": round(float(np.mean(areas)), 2),
+            "std": round(float(np.std(areas)), 2),
+            "count": len(areas),
+        }
+
+    def _get_seed_stats_watershed(self):
+        """Previous seed separation algorithm, available for explicit comparison."""
         binary_mask = self.mask_seed > 0
         if binary_mask.sum() == 0:
             return {"sum": 0, "min": 0, "max": 0, "avg": 0, "std": 0, "count": 0}

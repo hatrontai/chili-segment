@@ -12,6 +12,9 @@
 *.svg
 *.tex
 *.pdf
+!docs/paper/*.tex
+!docs/paper/paper_bilingual.pdf
+!docs/paper/images/*.png
 GHI_CHU_CAP_NHAT.md
 
 # Generated artifacts and pretrained models
