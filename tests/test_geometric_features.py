@@ -238,7 +238,7 @@ class TerminologyTests(unittest.TestCase):
         chili.mask_mesocarp[:] = 0
         self.assertIsNone(chili.get_mesocarp_area_fraction())
 
-    def test_scr_uses_seed_area_over_cavity_union(self):
+    def test_scr_uses_current_endocarp_as_cavity(self):
         chili = Chili.__new__(Chili)
         chili.mask_seed = np.zeros((4, 4), dtype=np.uint8)
         chili.mask_endocarp = np.zeros((4, 4), dtype=np.uint8)
@@ -246,7 +246,15 @@ class TerminologyTests(unittest.TestCase):
         chili.mask_seed[0, :2] = 255
         chili.mask_endocarp[:2, :] = 255
         chili.mask_placenta[2, :2] = 255
-        self.assertEqual(chili.get_seed_density(), 0.2)
+        self.assertEqual(chili.get_seed_density(), 0.25)
+        # Seed pixels outside endocarp must not enlarge the denominator.
+        chili.mask_seed[3, :2] = 255
+        self.assertEqual(chili.get_seed_density(), 0.5)
+        # Independent predictions can yield a ratio above one; do not clamp.
+        chili.mask_seed[:] = 255
+        self.assertEqual(chili.get_seed_density(), 2.0)
+        chili.mask_endocarp[:] = 0
+        self.assertEqual(chili.get_seed_density(), 0)
 
     def test_fci_is_regularized_chord_complement_and_zero_means_straight(self):
         chili = Chili.__new__(Chili)

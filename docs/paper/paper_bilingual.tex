@@ -681,10 +681,10 @@ Trong đó, $SA$ có đơn vị mm$^2$; $SC$ là số hạt phát hiện đượ
 
 
 \subsection*{Extract Seed-to-Cavity Area Ratio ($SCR$) / {\color{viColor} Trích xuất tỷ số diện tích hạt trên khoang quả ($SCR$)}}
-The Seed-to-Cavity Area Ratio ($SCR$) uses the area of the union seed mask, which counts each covered pixel once. Let $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}\cup M_{\mathrm{placenta}}\cup M_{\mathrm{seed}}$. The runtime computes
+The Seed-to-Cavity Area Ratio ($SCR$) uses the area of the union seed mask, which counts each covered pixel once. Let $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}$. The runtime computes
 
 \begin{viet}
-Tỷ số diện tích hạt trên khoang quả ($SCR$) sử dụng diện tích mask hợp của các hạt, trong đó mỗi pixel thuộc mask hợp chỉ được tính một lần. Gọi $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}\cup M_{\mathrm{placenta}}\cup M_{\mathrm{seed}}$. Chương trình tính:
+Tỷ số diện tích hạt trên khoang quả ($SCR$) sử dụng diện tích mask hợp của các hạt, trong đó mỗi pixel thuộc mask hợp chỉ được tính một lần. Gọi $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}$. Chương trình tính:
 \end{viet}
 
 \begin{equation}
@@ -692,10 +692,10 @@ Tỷ số diện tích hạt trên khoang quả ($SCR$) sử dụng diện tích
  0,&|M_{\mathrm{cavity}}|=0.
  \end{cases}
 \end{equation}
-Thus, $SCR$ is dimensionless and lies in $[0,1]$. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
+Thus, $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
 
 \begin{viet}
-Do đó, $SCR$ không có thứ nguyên và nằm trong $[0,1]$. Tử số bằng $SA/\gamma^2$ trước khi làm tròn $SA$ để hiển thị, vì cả hai phép đo sử dụng cùng mask hợp của các hạt.
+Do đó, $SCR$ không có thứ nguyên. Chỉ số nằm trong $[0,1]$ khi mask hạt nằm hoàn toàn trong mask nội quả bì; các dự đoán phân đoạn độc lập có thể cho giá trị lớn hơn một. Tử số bằng $SA/\gamma^2$ trước khi làm tròn $SA$ để hiển thị, vì cả hai phép đo sử dụng cùng mask hợp của các hạt.
 \end{viet}
 
 

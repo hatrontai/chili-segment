@@ -1423,10 +1423,9 @@ class Chili(Fruits):
         return round(float(np.clip(curvature, 0.0, 1.0)), 4)
 
     def get_seed_density(self):
+        """Seed union area divided by the current endocarp mask area."""
         seed_px = (self.mask_seed > 0).sum()
-        cavity_mask = cv2.bitwise_or(self.mask_endocarp, self.mask_seed)
-        cavity_mask = cv2.bitwise_or(cavity_mask, self.mask_placenta)
-        cavity_px = (cavity_mask > 0).sum()
+        cavity_px = (self.mask_endocarp > 0).sum()
         if cavity_px == 0:
             return 0
         density = seed_px / cavity_px

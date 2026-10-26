@@ -370,13 +370,13 @@ Here, $SA$ is expressed in mm$^2$, and $SC$ is the number of detected seeds. Eac
 
 
 \subsection*{Extract Seed-to-Cavity Area Ratio ($SCR$)}
-The Seed-to-Cavity Area Ratio ($SCR$) uses the area of the union seed mask, which counts each covered pixel once. Let $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}\cup M_{\mathrm{placenta}}\cup M_{\mathrm{seed}}$. The runtime computes
+The Seed-to-Cavity Area Ratio ($SCR$) uses the area of the union seed mask, which counts each covered pixel once. Let $M_{\mathrm{cavity}}=M_{\mathrm{endocarp}}$. The runtime computes
 \begin{equation}
  SCR=\begin{cases}|M_{\mathrm{seed}}|/|M_{\mathrm{cavity}}|,&|M_{\mathrm{cavity}}|>0,\\
  0,&|M_{\mathrm{cavity}}|=0.
  \end{cases}
 \end{equation}
-Thus, $SCR$ is dimensionless and lies in $[0,1]$. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
+Thus, $SCR$ is dimensionless. It lies in $[0,1]$ when the seed mask is contained in the endocarp mask; independent segmentation predictions can yield values above one. Its numerator equals $SA/\gamma^2$ before rounding $SA$ for display, because both measurements use the same union seed mask.
 
 \subsection*{Extract Redness and Color Variation}
 Redness is computed from the green--red $a^*$ axis of CIELAB over $M_{\mathrm{pure}}=M_{\mathrm{chili}}\setminus(M_{\mathrm{seed}}\cup M_{\mathrm{outer}}\cup M_{\mathrm{PCP}})$ \cite{cielab}:
