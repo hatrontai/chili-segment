@@ -1,4 +1,5 @@
 from PIL import Image
+from pathlib import Path
 import numpy as np
 import cv2
 from scipy.ndimage import binary_fill_holes
@@ -18,7 +19,7 @@ class SegmentModel:
     MODEL_CONF_THRESHOLD = 0.01
     COMPONENT_CONF_THRESHOLD = 0.10
     SEED_CONF_THRESHOLD = 0.35
-    def __init__(self, weight_path="../pretrain/yolov8_segment_v1.pt",
+    def __init__(self, weight_path=str(Path(__file__).resolve().parents[1] / "weights/yolov11m_segment_final.pt"),
                  model_name='yolo', device='cpu', imgsz=640,
                  fruit_threshold_offset=16):
         if model_name == 'yolo':

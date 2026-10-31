@@ -69,7 +69,7 @@ def parse_args():
     )
     parser.add_argument(
         "--weight-seg", type=Path,
-        default=PROJECT_ROOT / "weights" / "yolov8_segment_v2.pt",
+        default=PROJECT_ROOT / "weights" / "yolov11m_segment_final.pt",
     )
     parser.add_argument("--device", default="cpu")
     parser.add_argument(

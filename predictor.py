@@ -25,7 +25,7 @@ WEIGHT_MODEL_DETECT = os.getenv(
     str(BASE_DIR / "weights" / "yolov7_detection.onnx"),
 )
 WEIGHT_MODEL_SEGMENT = os.getenv(
-    "CHILI_SEGMENT_WEIGHT", str(BASE_DIR / "weights" / "yolov8_segment_v2.pt")
+    "CHILI_SEGMENT_WEIGHT", str(BASE_DIR / "weights" / "yolov11m_segment_final.pt")
 )
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 

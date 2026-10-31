@@ -39,7 +39,7 @@ WEIGHT_MODEL_DETECT = Path(
 WEIGHT_MODEL_SEGMENT = Path(
     os.getenv(
         "CHILI_SEGMENT_WEIGHT",
-        str(BASE_DIR / "weights" / "yolov8_segment_v3.pt"),
+        str(BASE_DIR / "weights" / "yolov11m_segment_final.pt"),
     )
 )
 

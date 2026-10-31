@@ -28,7 +28,7 @@ EXTRA_COLUMNS = (
 class PipelineConfig:
     detector_backend: str = "yolov7_onnx"
     weight_det: str = str(BASE_DIR / "weights/yolov7_detection.onnx")
-    weight_seg: str = str(BASE_DIR / "weights/yolov8_segment_v2.pt")
+    weight_seg: str = str(BASE_DIR / "weights/yolov11m_segment_final.pt")
     device: str = "cpu"
     det_conf: float = 0.70
     det_iou: float = 0.30
