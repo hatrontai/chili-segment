@@ -12,9 +12,6 @@
 *.svg
 *.tex
 *.pdf
-!docs/paper/*.tex
-!docs/paper/paper_bilingual.pdf
-!docs/paper/images/*.png
 GHI_CHU_CAP_NHAT.md
 
 # Generated artifacts and pretrained models
@@ -37,3 +34,20 @@ __pycache__/
 .coverage
 .coverage.*
 htmlcov/
+
+# Notebook, environment and local-tool artifacts
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

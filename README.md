@@ -20,10 +20,17 @@ The current implementation uses:
 - `src/object.py`: fruit/chili domain objects and feature calculations
 - `src/geometric_features.py`: mesocarp skeleton, thickness ray-casting, and
   fruit-body contour wrinkle geometry
-- `tests/test_geometric_features.py`: synthetic geometry and scale-fallback tests
+- `src/pipeline.py`: shared runtime configuration, provenance and exports
+- `src/traits.py`: canonical trait registry for Web and CLI output
+- `tests/`: regression tests and measurement/detection evaluation scripts
 - `data/`: sample images and matching annotations
 - `weights/`: runtime ONNX detector and YOLOv8 segmentation weights
-- `../yolov7_export/`: isolated official YOLOv7 export checkout and artifacts
+
+This repository contains runtime code, regression tests and bundled sample data.
+Historical notebooks, progress reports and the paper snapshot were archived
+outside the repository during the November 2026 cleanup. They remain available
+in earlier Git commits; they are not runtime dependencies. Model weights stay
+local under `weights/` and are excluded from Git.
 
 ## Requirements
 
@@ -40,7 +47,8 @@ The revised runtime was tested with Python 3.11 and these Python packages:
 - `gradio`
 - `scipy`
 
-The code also relies on a plotting library for visualization helpers, so `matplotlib` should be installed as well if you use the notebook or display functions.
+The visualization helpers also require `matplotlib`; it is included in
+`requirements.txt`.
 
 System packages commonly needed on Linux:
 
@@ -65,11 +73,12 @@ sudo apt-get install libgl1 libglib2.0-0 libzbar0
 
 ## Pretrained Weights
 
-The repository expects a segmentation weight file at:
+The default segmentation checkpoint depends on the entry point:
 
-```text
-./weights/yolov8_segment_v2.pt
-```
+| Entry point | Local segmentation checkpoint |
+| --- | --- |
+| Web (`app.py`) | `weights/yolov8_segment_v3.pt` |
+| CLI (`predictor.py`) and `PipelineConfig` | `weights/yolov8_segment_v2.pt` |
 
 The default detector weight is `./weights/yolov7_detection.onnx`. Set
 `CHILI_DETECTION_WEIGHT` to override it in the Web app, or
@@ -77,12 +86,13 @@ The default detector weight is `./weights/yolov7_detection.onnx`. Set
 ONNX model stops startup with an explicit error instead of silently switching
 detectors.
 
-The ONNX file is exported outside `code_base` from the official YOLOv7 source:
+The optional ONNX export step uses a separate checkout of the official YOLOv7
+source. Run this in that checkout with the checkpoint's absolute path:
 
 ```bash
-cd ../yolov7_export/yolov7
+cd /path/to/yolov7
 python export.py \
-  --weights ../weights/yolov7_detection.pt \
+  --weights /path/to/yolov7_detection.pt \
   --img-size 640 640 \
   --batch-size 1 \
   --device cpu \
@@ -228,8 +238,8 @@ in pixel-count units. This prevents division by zero without a separate branch.
 An empty seed mask returns zero; an empty endocarp with detected seed pixels
 produces a large finite ratio. The ratio is not clamped.
 
-The corresponding bilingual paper and buildable TeX sources are versioned in
-[`docs/paper`](docs/paper/README.md).
+The historical paper snapshot was archived outside this runtime repository;
+it can also be recovered from earlier Git commits.
 
 Fruit width follows the longitudinal-slice protocol used by this project's
 pepper phenotyping method: divide the segmented fruit mask height into nine
@@ -274,7 +284,7 @@ The legacy `seed_density` attribute is the Seed-to-Cavity Area Ratio
 
 ## Notes
 
-- The repository includes notebooks for preprocessing and parameter exploration, but they are not required for runtime inference.
+- Historical preprocessing and parameter-exploration notebooks were archived outside the runtime repository.
 - The code is research-oriented and expects images in a format similar to the bundled samples.
 - Some helper methods are present for visualization and analysis, but the main entry points are `app.py` and `predictor.py`.
 
@@ -327,9 +337,9 @@ Uniformity is population SD of the OpenCV zero-centered a channel: higher means
 less uniform. Its region includes endocarp pixels and has no white-balance
 normalization. Names mesocarp/endocarp are operational annotation labels.
 
-`requirements-tested.txt` records direct packages in the tested environment;
-the torch CUDA build string is provenance for that environment, not a portable
-CPU wheel requirement. Use `requirements.txt` for a platform-appropriate install
+Run manifests record installed direct dependency versions. A torch CUDA build
+string describes its environment and is not a portable CPU wheel requirement.
+Use `requirements.txt` for a platform-appropriate install
 and retain its resolved versions in manifests. Linux QR decoding needs libzbar;
 otherwise the documented dataset-mean scale fallback is used.
 

@@ -1,8 +1,8 @@
 """Geometric mesocarp-thickness and fruit-body contour wrinkle measurements.
 
-The implementation in this module is the runtime counterpart of
-``wrinkle_thickness_experiment.ipynb``.  Distances are expressed in millimetres
-through the QR-derived (or explicitly documented fallback) mm/pixel ratio.
+This module contains the runtime geometry algorithms. Distances are expressed
+in millimetres through the QR-derived (or explicitly documented fallback)
+mm/pixel ratio.
 """
 
 import math
