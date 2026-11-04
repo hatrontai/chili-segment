@@ -142,7 +142,7 @@ def create_manifest(config, inputs):
     except (OSError, subprocess.CalledProcessError):
         revision, dirty = None, None
     versions = {}
-    for package in ("torch", "ultralytics", "onnxruntime", "numpy", "opencv-python", "scipy", "scikit-image", "pandas", "Pillow", "gradio", "pyzbar", "shapely", "matplotlib"):
+    for package in ("torch", "ultralytics", "onnxruntime", "numpy", "opencv-python", "scipy", "scikit-image", "pandas", "Pillow", "fastapi", "uvicorn", "python-multipart", "pyzbar", "shapely", "matplotlib"):
         try:
             versions[package] = metadata.version(package)
         except metadata.PackageNotFoundError:

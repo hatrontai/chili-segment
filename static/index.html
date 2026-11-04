@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f0">
+  <meta name="description" content="Explore chili fruit anatomy through object detection, segmentation and geometric phenotyping. Try the interactive research demo.">
+  <title>Chili Pepper Phenotyping · Research Demo</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='27'%3E🌶%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#demo">Skip to demo</a>
+<header class="site-header wrap">
+  <a href="#" class="brand" aria-label="Chili phenotyping home"><span class="brand-mark" aria-hidden="true">c<span>•</span></span><span>CHILI<span class="brand-sub">RESEARCH DEMO</span></span></a>
+  <nav aria-label="Main navigation"><a href="#approach">The approach</a><a href="#demo" class="nav-demo">Open demo <span aria-hidden="true">↗</span></a></nav>
+</header>
+<main>
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="status-dot"></span> COMPUTER VISION FOR PLANT SCIENCE</p>
+      <h1 id="hero-title">A closer look.<br>A deeper <em>understanding.</em></h1>
+      <p class="hero-description">Chili Pepper Phenotyping</p>
+      <p class="hero-body">From a fruit section to measurable traits. Explore size, internal anatomy, seeds, shape and color through an automated image analysis pipeline.</p>
+      <a class="button primary hero-cta" href="#demo">Try the demo <span aria-hidden="true">↗</span></a>
+      <p class="small muted">Your image. Every processing step. Exportable measurements.</p>
+    </div>
+    <figure class="hero-figure">
+      <div class="specimen-frame"><img id="hero-image" alt="Longitudinal chili fruit sections from the research dataset" hidden><div id="hero-placeholder" class="hero-placeholder">Longitudinal fruit analysis</div><span class="specimen-tag">CHILI FRUIT SECTIONS <span>01 / SPECIMEN</span></span></div>
+      <figcaption><span>REAL SPECIMENS. VISIBLE ANATOMY.</span><span>Longitudinal fruit sections <span aria-hidden="true">↗</span></span></figcaption>
+    </figure>
+  </section>
+  <section id="approach" class="approach wrap" aria-labelledby="approach-title">
+    <div class="section-intro"><p class="eyebrow">THE APPROACH</p><h2 id="approach-title">One image. Three layers of insight.</h2></div>
+    <div class="steps">
+      <article><span class="step-number">01</span><div><h3>Locate each fruit</h3><p>YOLOv7 detection isolates fruit regions and normalizes their orientation.</p></div></article>
+      <article><span class="step-number">02</span><div><h3>Reveal the anatomy</h3><p>YOLO11m segmentation separates seeds and internal tissues, alongside a whole-fruit threshold mask.</p></div></article>
+      <article><span class="step-number">03</span><div><h3>Measure the phenotype</h3><p>Extract geometric, seed, shape and color features with scale calibration and diagnostics.</p></div></article>
+    </div>
+  </section>
+  <section id="demo" class="demo-section" aria-labelledby="demo-title">
+    <div class="wrap">
+      <div class="demo-heading"><div><p class="eyebrow">INTERACTIVE RESEARCH DEMO</p><h2 id="demo-title">See what’s inside.</h2><p class="muted">Choose a specimen, run the analysis, and explore the evidence.</p></div><span class="local-badge"><span class="status-dot"></span> Local analysis</span></div>
+      <div class="workspace">
+        <aside class="input-panel">
+          <form id="analysis-form">
+            <fieldset id="input-fields">
+              <div class="panel-heading"><span class="eyebrow">01 / INPUT</span><button type="button" id="reset-button" class="text-button">Reset</button></div>
+              <label for="sample-select">Explore a sample</label>
+              <select id="sample-select" name="sample_name"><option value="">Loading samples…</option></select>
+              <div class="divider"><span>or bring your own</span></div>
+              <label class="upload-zone" id="drop-zone" for="upload-input"><span class="upload-symbol" aria-hidden="true">↑</span><strong>Drop an image here</strong><span>or click to browse</span><span class="small muted">JPG, PNG, BMP, TIFF · up to 50 MB</span><input type="file" id="upload-input" accept=".jpg,.jpeg,.png,.bmp,.tif,.tiff"></label>
+              <div id="upload-info" class="upload-info" hidden><span id="upload-name"></span><button type="button" class="text-button" id="clear-upload">Remove</button></div>
+              <p class="small muted">An uploaded image takes priority over the selected sample.</p>
+              <div class="settings-heading eyebrow">02 / ANALYSIS SETTINGS</div>
+              <label for="detector-backend">Object detector</label>
+              <select id="detector-backend" name="detector_backend"><option value="yolov7_onnx">YOLOv7 · ONNX</option><option value="threshold">Threshold · fallback</option></select>
+              <label for="fruit-offset" class="range-label">Whole-fruit threshold offset <output for="fruit-offset">16</output></label>
+              <input id="fruit-offset" name="fruit_threshold_offset" type="range" min="0" max="100" step="1" value="16">
+              <label for="wrinkle-threshold" class="range-label">Wrinkle segment threshold <output for="wrinkle-threshold">5 mm</output></label>
+              <input id="wrinkle-threshold" name="wrinkle_tau_mm" type="range" min="0.5" max="20" step="0.5" value="5" data-unit=" mm">
+              <details class="advanced"><summary>Advanced inference settings</summary>
+                <div class="advanced-content"><label for="seg-imgsz">Segmentation image size (px)</label><input id="seg-imgsz" name="seg_imgsz" type="number" value="640" min="1" step="1" required>
+                <label for="crop-top">Top crop (px)</label><input id="crop-top" name="crop_top" type="number" value="540" min="0" step="1" required>
+                <p class="small crop-note">Dataset images include a header: the default excludes the top 540 px. Set this to <strong>0</strong> for images without a header.</p>
+                <label for="det-conf" class="range-label">Detection confidence <output for="det-conf">0.70</output></label><input id="det-conf" name="det_conf" type="range" min="0" max="1" step="0.01" value="0.70">
+                <label for="det-iou" class="range-label">Detection IoU <output for="det-iou">0.30</output></label><input id="det-iou" name="det_iou" type="range" min="0" max="1" step="0.01" value="0.30">
+                <label for="det-containment" class="range-label">Detection IoM <output for="det-containment">0.60</output></label><input id="det-containment" name="det_containment" type="range" min="0" max="1" step="0.01" value="0.60"></div>
+              </details>
+            </fieldset>
+            <button type="submit" id="run-button" class="button primary run-button">Run analysis <span aria-hidden="true">→</span></button>
+            <p class="small muted run-note">Results include images, measurements and a diagnostic manifest.</p>
+          </form>
+        </aside>
+        <div class="results-panel" id="results-panel" aria-busy="false">
+          <div class="result-header"><span class="eyebrow">03 / EXPLORE RESULTS</span><span id="result-label" class="small muted">Ready when you are</span></div>
+          <div id="analysis-status" class="analysis-status" role="status" aria-live="polite" hidden></div>
+          <div id="analysis-error" class="notice error" role="alert" hidden></div>
+          <div id="idle-view" class="idle-view"><div class="preview-toolbar"><span>INPUT PREVIEW</span><span id="preview-name">Choose an image to begin</span></div><button type="button" id="preview-zoom" class="preview-zoom" aria-label="Enlarge input image" disabled><img id="input-preview" alt="Selected image preview" hidden><span id="preview-empty" class="preview-empty">Your specimen will appear here</span><span class="zoom-hint">Click to inspect <span aria-hidden="true">↗</span></span></button><div class="idle-caption"><span class="round-icon" aria-hidden="true">↗</span><div><h3>A complete view of your pipeline.</h3><p class="muted">Run analysis to explore detection, anatomy masks and measurements for each fruit.</p></div></div></div>
+          <div id="result-content" hidden>
+            <div id="metrics" class="metrics"></div>
+            <div id="warnings" class="warnings"></div>
+            <div class="result-actions"><span id="result-source" class="small muted"></span><a id="download-zip" class="button secondary" download>Download results ↓</a></div>
+            <div class="result-tabs" role="tablist" aria-label="Processing steps">
+              <button id="tab-input" type="button" role="tab" aria-controls="panel-input" aria-selected="false" tabindex="-1" data-tab="input">1. Input &amp; ROI</button>
+              <button id="tab-detection" type="button" role="tab" aria-controls="panel-detection" aria-selected="false" tabindex="-1" data-tab="detection">2. Detection</button>
+              <button id="tab-crops" type="button" role="tab" aria-controls="panel-crops" aria-selected="false" tabindex="-1" data-tab="crops">3. Chili Crops</button>
+              <button id="tab-segmentation" type="button" role="tab" aria-controls="panel-segmentation" aria-selected="false" tabindex="-1" data-tab="segmentation">4. Segmentation</button>
+              <button id="tab-masks" type="button" role="tab" aria-controls="panel-masks" aria-selected="false" tabindex="-1" data-tab="masks">5. Class Masks</button>
+              <button id="tab-final" type="button" role="tab" aria-controls="panel-final" aria-selected="true" tabindex="0" data-tab="final">6. Final Result &amp; Comparison</button>
+            </div>
+            <section id="panel-input" role="tabpanel" aria-labelledby="tab-input" class="result-section" hidden><h3>Input &amp; detection region</h3><p class="muted">Inspect the original image and the region passed to the detector.</p><div id="input-images" class="image-grid"></div></section>
+            <section id="panel-detection" role="tabpanel" aria-labelledby="tab-detection" class="result-section" hidden><h3>Fruit detection</h3><p class="muted">Green outlines mark detected fruit. Yellow outlines show the padded crops. The threshold mask is a reference view.</p><div id="detection-images" class="image-grid"></div></section>
+            <section id="panel-crops" role="tabpanel" aria-labelledby="tab-crops" class="result-section" hidden><h3>From detection to individual fruit</h3><p class="muted">Each bounding box is padded by 50 px, cropped, then rotated to normalize its orientation before segmentation.</p><div id="crop-images" class="image-grid"></div></section>
+            <section id="panel-segmentation" role="tabpanel" aria-labelledby="tab-segmentation" class="result-section" hidden><h3>Hybrid segmentation</h3><p class="muted">Model-predicted anatomy alongside a whole-fruit threshold mask.</p><div class="legend" data-legend="basic"></div><div id="segmentation-images" class="image-grid"></div></section>
+            <section id="panel-masks" role="tabpanel" aria-labelledby="tab-masks" class="result-section" hidden><h3>One specimen, every tissue</h3><p class="muted">Each contact sheet includes the original and individual masks. The layout adapts to the shape of the fruit.</p><div class="legend" data-legend="full"></div><div id="mask-images" class="image-grid single-column"></div></section>
+            <section id="panel-final" role="tabpanel" aria-labelledby="tab-final" class="result-section"><h3>The full picture</h3><p class="muted">Segmentation mapped back to the source image, with a detailed comparison for each fruit.</p><div id="final-image" class="image-grid single-column"></div><div class="comparison-heading"><h3>Compare individual fruit</h3><label for="comparison-columns">Cards per row <select id="comparison-columns"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label></div><div id="comparison-images" class="image-grid comparison-grid"></div></section>
+            <details class="feature-details"><summary>All measurements <span id="feature-count" class="small muted"></span></summary><div class="table-toolbar"><span class="small muted">Scroll horizontally to explore all 34 columns. Missing values are shown as —.</span><a id="download-csv" download>Download CSV ↓</a></div><div class="table-scroll" tabindex="0" role="region" aria-label="Feature measurements table"><table id="feature-table"><caption class="sr-only">Phenotyping measurements for each detected fruit</caption><thead></thead><tbody></tbody></table></div></details>
+            <details class="run-details"><summary>Run configuration &amp; provenance</summary><p class="small muted">The manifest records effective configuration, model hashes, diagnostics and calibration details.</p><dl id="run-config"></dl><a id="download-manifest" download>Download manifest ↓</a></details>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="research-note wrap"><p class="eyebrow">INTERPRETING YOUR RESULTS</p><h2>Measurements with context.</h2><p>Calibration, segmentation quality and specimen preparation affect the measurements. Inspect the intermediate views and diagnostic manifest alongside the numeric results. When a QR scale is unavailable, the pipeline reports its estimated scale and a warning.</p></section>
+</main>
+<footer class="wrap"><span>CHILI / PHENOTYPING</span><span>From image to insight. A research demonstration.</span><a href="#">Back to top ↑</a></footer>
+<dialog id="image-dialog" aria-labelledby="zoom-caption"><div class="dialog-toolbar"><p id="zoom-caption"></p><button type="button" id="close-dialog" class="button secondary" aria-label="Close enlarged image">Close ×</button></div><div class="zoom-scroll"><img id="zoom-image" alt=""></div><p class="small muted">Scroll to inspect the image. Press Escape to close.</p></dialog>
+<noscript><p class="notice error">JavaScript is required to upload images and run the interactive demo.</p></noscript>
+</body>
+</html>

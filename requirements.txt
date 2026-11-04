@@ -10,6 +10,8 @@ scikit-image
 
 ultralytics
 onnxruntime
-gradio
+fastapi
+uvicorn
+python-multipart
 
 torch
