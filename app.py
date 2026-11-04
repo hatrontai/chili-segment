@@ -1,6 +1,8 @@
 """Local HTML demo and sequential inference API for chili phenotyping."""
+import asyncio
+import inspect
+import json
 import logging
-import math
 import os
 import shutil
 import tempfile
@@ -12,11 +14,12 @@ from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from src.progress import ProgressJournal, json_safe as _json_safe
 from src.web_service import make_config, process_image, validate_image
 # Retained for callers of the original dataframe helper.
 from src.web_service import extract_chili_features  # noqa: F401
@@ -39,20 +42,10 @@ class RunOptions(BaseModel):
     det_containment: float = Field(default=0.60, ge=0, le=1)
 
 
-def _json_safe(value):
-    """Strict JSON: unavailable measurements are null, including infinity."""
-    if isinstance(value, dict):
-        return {key: _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    return value
-
-
 def create_app(data_dir=None, processor=None):
     data_dir = Path(data_dir) if data_dir is not None else BASE_DIR / "data"
     processor = processor or process_image
+    supports_progress = "on_progress" in inspect.signature(processor).parameters
     jobs = {}
     lock = threading.Lock()
 
@@ -85,21 +78,22 @@ def create_app(data_dir=None, processor=None):
     def run_job(job_id, path, config, source, display_name):
         with lock:
             jobs[job_id]["status"] = "running"
+            journal = jobs[job_id]["journal"]
         try:
-            directory = app.state.work_dir / job_id / "artifacts"
+            directory = journal.root
             directory.mkdir()
-            result = _json_safe(processor(path, config, directory, source))
+            kwargs = {"on_progress": journal.record} if supports_progress else {}
+            result = _json_safe(processor(path, config, directory, source, **kwargs))
             result["summary"]["filename"] = display_name
-            prefix = f"/api/jobs/{job_id}/files/"
             for item in result["images"].values():
-                item["url"] = prefix + quote(item["url"], safe="/")
+                item["url"] = journal.register(item["url"])
             for items in result["galleries"].values():
                 for item in items:
-                    item["url"] = prefix + quote(item["url"], safe="/")
-            result["downloads"] = {key: prefix + quote(name, safe="/") for key, name in result["downloads"].items()}
-            files = {str(p.relative_to(directory)) for p in directory.rglob("*") if p.is_file()}
+                    item["url"] = journal.register(item["url"])
+            result["downloads"] = {key: journal.register(name) for key, name in result["downloads"].items()}
             with lock:
-                jobs[job_id].update(status="completed", result=result, files=files)
+                jobs[job_id].update(status="completed", result=result)
+            journal.record({"kind": "job", "state": "completed"})
         except Exception as exc:
             logger.exception("Analysis %s failed", job_id)
             if isinstance(exc, FileNotFoundError):
@@ -110,6 +104,7 @@ def create_app(data_dir=None, processor=None):
                 message = "Analysis failed. Check the server log and model configuration, then try again."
             with lock:
                 jobs[job_id].update(status="failed", error=message)
+            journal.fail(message)
 
     @app.get("/", include_in_schema=False)
     def index():
@@ -169,9 +164,11 @@ def create_app(data_dir=None, processor=None):
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
             with lock:
-                jobs[job_id] = {"id": job_id, "status": "queued", "result": None, "error": None}
+                jobs[job_id] = {"id": job_id, "status": "queued", "result": None, "error": None,
+                                "journal": ProgressJournal(directory / "artifacts", job_id)}
             app.state.executor.submit(run_job, job_id, path, config, source, display_name)
-            return {"id": job_id, "status": "queued", "status_url": f"/api/jobs/{job_id}"}
+            return {"id": job_id, "status": "queued", "status_url": f"/api/jobs/{job_id}",
+                    "events_url": f"/api/jobs/{job_id}/events", "trace_url": f"/api/jobs/{job_id}/trace"}
         except Exception:
             if directory is not None:
                 shutil.rmtree(directory, ignore_errors=True)
@@ -183,14 +180,58 @@ def create_app(data_dir=None, processor=None):
     @app.get("/api/jobs/{job_id}")
     def status(job_id: str):
         job = get_job(job_id)
-        return {key: job[key] for key in ("id", "status", "result", "error")}
+        return {**{key: job[key] for key in ("id", "status", "result", "error")},
+                "progress": job["journal"].snapshot()}
+
+    @app.get("/api/jobs/{job_id}/trace")
+    def trace(job_id: str):
+        job = get_job(job_id)
+        return {"id": job_id, "status": job["status"], "events": job["journal"].events()}
+
+    @app.get("/api/jobs/{job_id}/events")
+    async def events(job_id: str, request: Request,
+                     after: int = Query(default=0, ge=0),
+                     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None):
+        journal = get_job(job_id)["journal"]
+        try:
+            last_seq = int(last_event_id or 0)
+            if last_seq < 0:
+                raise ValueError("Negative event ID")
+            cursor = max(after, last_seq)
+        except ValueError as exc:
+            raise HTTPException(422, "Last-Event-ID must be a nonnegative integer.") from exc
+        if cursor < 0:
+            raise HTTPException(422, "Last-Event-ID must be a nonnegative integer.")
+
+        async def stream():
+            nonlocal cursor
+            yield "retry: 1200\n\n"
+            heartbeat = asyncio.get_running_loop().time()
+            while not await request.is_disconnected():
+                batch = journal.events(cursor)
+                for event in batch:
+                    cursor = event["seq"]
+                    yield f"id: {cursor}\nevent: progress\ndata: {json.dumps(event, allow_nan=False)}\n\n"
+                all_events = journal.events()
+                # Wait for the terminal journal record, not merely the job flag:
+                # failed-node and skipped-node events must precede stream closure.
+                if all_events and all_events[-1].get("kind") == "job" and cursor >= len(all_events):
+                    return
+                now = asyncio.get_running_loop().time()
+                if now - heartbeat >= 15:
+                    yield ": keep-alive\n\n"
+                    heartbeat = now
+                await asyncio.sleep(.15)
+
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"})
 
     @app.get("/api/jobs/{job_id}/files/{filename:path}")
     def artifact(job_id: str, filename: str):
         job = get_job(job_id)
         root = app.state.work_dir / job_id / "artifacts"
         path = (root / filename).resolve()
-        if job["status"] != "completed" or filename not in job.get("files", set()) or not path.is_relative_to(root.resolve()) or not path.is_file():
+        if not job["journal"].is_published(filename) or not path.is_relative_to(root.resolve()) or not path.is_file():
             raise HTTPException(404, "Result file not found.")
         download = path.suffix in {".zip", ".csv", ".json"}
         return FileResponse(path, filename=path.name if download else None)

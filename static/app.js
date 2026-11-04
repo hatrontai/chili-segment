@@ -102,6 +102,7 @@ $('clear-upload').addEventListener('click', () => { uploadInput.value = ''; choo
 }));
 $('reset-button').addEventListener('click', () => {
   if (pending || activeJob) return;
+  window.pipelineGraph?.reset();
   form.reset(); sampleSelect.value = samples[0]?.name || ''; uploadFile = null;
   document.querySelectorAll('input[type="range"]').forEach(updateRange);
   $('result-content').hidden = true;
@@ -170,7 +171,7 @@ function renderResult(result) {
   $('metrics').replaceChildren();
   const metrics = [
     ['Fruit detected', summary.fruit_count, 'individual specimens'],
-    ['Processing time', summary.elapsed_seconds.toFixed(2), 'seconds · inference & measurements'],
+    ['Processing time', summary.elapsed_seconds.toFixed(2), 'seconds · processing & stage outputs'],
     ['Image dimensions', `${summary.width} × ${summary.height}`, 'pixels'],
     ['Calibration', formatValue(summary.scale_ratio), `mm / pixel · ${summary.scale_source.replaceAll('_', ' ')}`],
   ];
@@ -229,13 +230,16 @@ async function pollJob() {
       const job = await request(activeJob.status_url);
       if (job.status === 'completed') {
         renderResult(job.result);
+        await window.pipelineGraph?.finish();
         setStatus('Analysis complete. Explore the results below.', 'completed');
         activeJob = null; setBusy(false); return;
       }
       if (job.status === 'failed') {
+        await window.pipelineGraph?.finish();
         activeJob = null; setBusy(false); $('analysis-status').hidden = true;
         $('result-label').textContent = 'Analysis failed'; showError(job.error); return;
       }
+      if (!window.EventSource) await window.pipelineGraph?.sync();
       setStatus(job.status === 'queued' ? 'Queued. Waiting for the current analysis to finish…' : 'Analyzing your specimen. First-time model loading and measurements may take a few minutes.');
       await new Promise((resolve) => setTimeout(resolve, 1200));
     }
@@ -265,6 +269,7 @@ form.addEventListener('submit', async (event) => {
   setStatus('Validating the input image and configuration…');
   try { activeJob = await request('/api/jobs', { method: 'POST', body: payload }); }
   catch (error) { $('analysis-status').hidden = true; $('result-label').textContent = 'Ready when you are'; showError(error.message); setBusy(false); return; }
+  window.pipelineGraph?.start(activeJob);
   await pollJob();
 });
 async function initialize() {
@@ -274,9 +279,6 @@ async function initialize() {
     samples.forEach((sample) => sampleSelect.add(new Option(sample.name, sample.name)));
     if (samples.length) {
       sampleSelect.value = samples[0].name;
-      const hero = $('hero-image');
-      hero.addEventListener('error', () => { hero.hidden = true; $('hero-placeholder').hidden = false; });
-      hero.src = samples[0].url; hero.hidden = false; $('hero-placeholder').hidden = true;
     }
     updatePreview();
   } catch (error) {
@@ -284,4 +286,69 @@ async function initialize() {
     showError(error.message);
   }
 }
+function initializeHeroVideo() {
+  const video = $('hero-video');
+  const frame = $('hero-media');
+  const poster = $('hero-image');
+  const toggle = $('hero-video-toggle');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let manuallyPaused = false;
+
+  function updateToggle() {
+    toggle.textContent = video.paused ? 'Play ▶' : 'Pause Ⅱ';
+    toggle.setAttribute('aria-label', video.paused ? 'Play demo video' : 'Pause demo video');
+  }
+  function playAutomatically() {
+    if (reducedMotion.matches || manuallyPaused || video.hidden) return;
+    video.play().catch(updateToggle);
+  }
+  video.muted = true;
+  video.defaultMuted = true;
+  video.autoplay = !reducedMotion.matches;
+  if (reducedMotion.matches) video.pause();
+  function showReadyVideo() {
+    frame.classList.add('video-ready');
+    poster.hidden = true;
+    $('hero-placeholder').hidden = true;
+    updateToggle();
+    playAutomatically();
+  }
+  function showVideoFallback() {
+    frame.classList.remove('video-ready');
+    video.hidden = true;
+    toggle.hidden = true;
+    const posterUnavailable = poster.complete && poster.naturalWidth === 0;
+    poster.hidden = posterUnavailable;
+    $('hero-placeholder').hidden = !posterUnavailable;
+  }
+  video.addEventListener('loadeddata', showReadyVideo);
+  video.addEventListener('play', updateToggle);
+  video.addEventListener('pause', updateToggle);
+  video.addEventListener('error', showVideoFallback);
+  poster.addEventListener('error', () => {
+    if (!frame.classList.contains('video-ready')) {
+      poster.hidden = true;
+      $('hero-placeholder').hidden = false;
+    }
+  });
+  toggle.addEventListener('click', () => {
+    if (video.paused) {
+      manuallyPaused = false;
+      video.play().catch(updateToggle);
+    } else {
+      manuallyPaused = true;
+      video.pause();
+    }
+  });
+  reducedMotion.addEventListener('change', () => {
+    video.autoplay = !reducedMotion.matches;
+    if (reducedMotion.matches) video.pause();
+    else playAutomatically();
+  });
+  // Cached data or an early network error can precede deferred script setup.
+  if (video.error) showVideoFallback();
+  else if (video.readyState >= 2) showReadyVideo();
+  updateToggle();
+}
+initializeHeroVideo();
 initialize();

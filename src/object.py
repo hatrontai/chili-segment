@@ -1,4 +1,5 @@
 import itertools
+from src.progress import FRUIT_NODES, notify
 import math
 from pathlib import Path
 import cv2
@@ -668,6 +669,7 @@ class Fruits(object):
         model_segment,
         fruit_threshold_offset=16,
         mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
+        on_progress=None,
     ):
         self.path = path
         self.model_segment = model_segment
@@ -687,6 +689,8 @@ class Fruits(object):
             mesocarp_wrinkle_segment_threshold_mm
         )
 
+        self.on_progress = on_progress
+        notify(on_progress, "scale", "running")
         qr_result = self.qr_code()
         if qr_result is not None:
             self.ratio, _ = qr_result
@@ -701,6 +705,8 @@ class Fruits(object):
             )
             print(f"Warning: {self.scale_warning}")
 
+        notify(on_progress, "scale", "completed", subject=self)
+
         self.image = Image.open(path)
         self.stored_image_size = self.image.size
         # QR, detection and crops use OpenCV's EXIF-aware decoded frame. PIL's
@@ -709,18 +715,39 @@ class Fruits(object):
 
         # Model detections are trusted. Threshold detections require at least
         # one segmentation mask, without forcing any particular class.
+        notify(on_progress, "detection", "running")
         candidate_boxes = sorted(self.get_bbox_chili(), key=lambda box: box[0])
+        notify(on_progress, "detection", "completed", boxes=candidate_boxes, candidate_total=len(candidate_boxes))
         self.candidate_diagnostics = {"detected_count": len(candidate_boxes), "accepted_count": 0, "rejected": []}
         self.box_cut = []
         self.items = []
-        for bbox in candidate_boxes:
+        if not candidate_boxes:
+            for node in FRUIT_NODES:
+                notify(on_progress, node, "skipped", message="No candidates detected.")
+        for candidate_index, bbox in enumerate(candidate_boxes):
+            active_node = ["crop"]
+
+            def report_candidate(event):
+                if event.get("state") == "running":
+                    active_node[0] = event["node"]
+                if on_progress is not None:
+                    on_progress({**event, "candidate_index": candidate_index,
+                                 "candidate_total": len(candidate_boxes)})
+
+            self._candidate_progress = report_candidate if on_progress is not None else None
             try:
                 chili = self.get_item(len(self.items), bbox=bbox)
             except InvalidChiliCandidate as exc:
                 self.candidate_diagnostics["rejected"].append({"bbox": [int(v) for v in bbox], "reason": str(exc)})
+                if on_progress is not None:
+                    for node in FRUIT_NODES[FRUIT_NODES.index(active_node[0]):]:
+                        report_candidate({"node": node, "state": "skipped", "message": str(exc)})
+                    report_candidate({"kind": "candidate", "state": "rejected", "message": str(exc)})
                 continue
             self.box_cut.append(bbox)
             self.items.append(chili)
+            if on_progress is not None:
+                report_candidate({"kind": "candidate", "state": "completed", "fruit_id": chili.id})
 
         self.num_fruit = len(self.items)
         self.candidate_diagnostics["accepted_count"] = self.num_fruit
@@ -740,6 +767,7 @@ class Fruits(object):
             mesocarp_wrinkle_segment_threshold_mm=(
                 self.mesocarp_wrinkle_segment_threshold_mm
             ),
+            **({"on_progress": self._candidate_progress} if getattr(self, "_candidate_progress", None) is not None else {}),
         )
         print(index, bbox)
         return chili
@@ -817,6 +845,7 @@ class Chili(Fruits):
         validation_mode="detector_trusted",
         scale_source="provided",
         mesocarp_wrinkle_segment_threshold_mm=MESOCARP_WRINKLE_SEGMENT_THRESHOLD_MM,
+        on_progress=None,
     ):
         self.path = path
         self.bbox = bbox
@@ -837,12 +866,16 @@ class Chili(Fruits):
         self._wrinkle_diagnostics = {}
         self._pedicel_diagnostics = {"status": "not_attempted"}
         self.name = self.get_name()
+        notify(on_progress, "crop", "running")
         self.position, self.img = self.get_img(self.bbox)
 
         self.width_bbox, self.height_bbox = self.get_width_height_bbox()
         self.rotation = "none"
 
         self.fruit_threshold_offset = int(fruit_threshold_offset)
+
+        notify(on_progress, "crop", "completed", subject=self)
+        notify(on_progress, "segmentation", "running")
 
         # First pass prediction to find orientation
         rseg = model_segment.predict(
@@ -905,6 +938,8 @@ class Chili(Fruits):
             reason = segment_stats.get("rejection_reason") or "invalid_fruit_mask"
             raise InvalidChiliCandidate(reason)
 
+        notify(on_progress, "segmentation", "completed", subject=self)
+        notify(on_progress, "masks", "running")
         self.polygons = self.get_polygons()
 
         self.mask_fruit = np.asarray(self.rseg["fruit_mask"], dtype=np.uint8)
@@ -935,6 +970,8 @@ class Chili(Fruits):
         self.mask_mesocarp = compute_mesocarp_mask_raw(self)
 
 
+        notify(on_progress, "masks", "completed", subject=self)
+        notify(on_progress, "traits", "running")
         self.spine = self._calculate_spine()
 
         self.width_fruit_stats = self.get_width_fruit()
@@ -967,6 +1004,7 @@ class Chili(Fruits):
         self.curvature_index = self.get_curvature_index()
         self.seed_density = self.get_seed_density()
         self.deviation_stats = self.get_deviation_stats()
+        notify(on_progress, "traits", "completed", subject=self)
 
     def _separate_pedicel_and_placenta(self):
         mask_pcp = self.mask_pcp

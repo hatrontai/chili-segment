@@ -9,6 +9,8 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='27'%3E🌶%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/app.js" defer></script>
+  <script src="/static/graph-state.js" defer></script>
+  <script src="/static/graph.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#demo">Skip to demo</a>
@@ -27,8 +29,12 @@
       <p class="small muted">Your image. Every processing step. Exportable measurements.</p>
     </div>
     <figure class="hero-figure">
-      <div class="specimen-frame"><img id="hero-image" alt="Longitudinal chili fruit sections from the research dataset" hidden><div id="hero-placeholder" class="hero-placeholder">Longitudinal fruit analysis</div><span class="specimen-tag">CHILI FRUIT SECTIONS <span>01 / SPECIMEN</span></span></div>
-      <figcaption><span>REAL SPECIMENS. VISIBLE ANATOMY.</span><span>Longitudinal fruit sections <span aria-hidden="true">↗</span></span></figcaption>
+      <div class="specimen-frame hero-media" id="hero-media">
+        <video id="hero-video" src="/static/media/chili-demo.mp4" poster="/static/media/chili-demo-poster.jpg" width="1440" height="1080" autoplay muted loop playsinline preload="metadata" aria-label="Chili phenotyping demo: specimen, detection, anatomy and measurements" aria-describedby="hero-video-caption"></video>
+        <img id="hero-image" src="/static/media/chili-demo-poster.jpg" alt="Chili phenotyping demo preview with six real fruit sections" hidden>
+        <div id="hero-placeholder" class="hero-placeholder" hidden>Chili Pepper Phenotyping</div>
+      </div>
+      <figcaption id="hero-video-caption"><span>REAL SPECIMENS. MEASURABLE TRAITS.</span><span class="hero-caption-actions"><span>14-second demo</span><button type="button" id="hero-video-toggle" aria-controls="hero-video" aria-label="Pause demo video">Pause Ⅱ</button></span></figcaption>
     </figure>
   </section>
   <section id="approach" class="approach wrap" aria-labelledby="approach-title">
@@ -42,6 +48,35 @@
   <section id="demo" class="demo-section" aria-labelledby="demo-title">
     <div class="wrap">
       <div class="demo-heading"><div><p class="eyebrow">INTERACTIVE RESEARCH DEMO</p><h2 id="demo-title">See what’s inside.</h2><p class="muted">Choose a specimen, run the analysis, and explore the evidence.</p></div><span class="local-badge"><span class="status-dot"></span> Local analysis</span></div>
+      <section class="pipeline-graph" aria-labelledby="graph-title">
+        <div class="graph-header">
+          <div><p class="eyebrow" id="trace-mode">LIVE EXECUTION</p><h3 id="graph-title">Follow the anatomy of an analysis.</h3></div>
+          <span id="graph-connection" class="graph-connection" role="status">Ready</span>
+        </div>
+        <p id="graph-live-note" class="small muted">Choose an image below and run analysis to bring this graph to life.</p>
+        <div class="graph-tools">
+          <span id="graph-progress-count" class="small muted" aria-live="polite">Waiting for detection</span>
+          <label for="graph-candidate">Inspect <select id="graph-candidate" disabled><option value="">Latest candidate</option></select></label>
+          <button type="button" id="follow-live" class="button secondary" aria-pressed="true">Follow live</button>
+        </div>
+        <div class="pipeline-canvas" id="pipeline-canvas" aria-label="Pipeline stages. Select a node to inspect its output.">
+          <svg id="pipeline-edges" aria-hidden="true" focusable="false"></svg>
+        </div>
+        <div class="graph-key"><span>○ Waiting</span><span class="key-running">◉ Running</span><span class="key-completed">✓ Complete</span><span class="key-failed">! Failed</span><span>– Skipped</span><span class="graph-key-branch">Dashed lines: data dependencies · dotted loop: next candidate</span></div>
+        <div class="replay-controls" aria-label="Recorded run playback">
+          <div class="replay-buttons"><button type="button" id="replay-button" class="button secondary" disabled>Replay</button><button type="button" id="pause-replay" class="button secondary" disabled>Pause</button><button type="button" id="restart-replay" class="button secondary" disabled>Restart</button></div>
+          <label for="replay-speed">Speed <select id="replay-speed" disabled><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+          <label class="replay-timeline" for="replay-seek"><span id="trace-time">0.00 s recorded · 0 / 0 events</span><input id="replay-seek" type="range" min="0" max="0" value="0" step="1" disabled></label>
+        </div>
+        <section id="node-output" class="node-output" aria-labelledby="node-output-title">
+          <div class="node-output-heading"><div><span id="node-output-context" class="eyebrow">Whole image</span><h4 id="node-output-title">Input &amp; ROI</h4></div><span id="node-output-state" class="node-output-state">Waiting</span></div>
+          <p id="node-output-message" class="node-output-message">This step has not been reached yet.</p>
+          <dl id="node-output-details"></dl>
+          <div id="node-output-images" class="image-grid" hidden></div>
+          <div id="node-feature-region" class="table-scroll" tabindex="0" role="region" aria-label="Measurements available at the selected stage" hidden><table id="node-feature-table"></table></div>
+          <div id="node-output-downloads" class="node-output-downloads"></div>
+        </section>
+      </section>
       <div class="workspace">
         <aside class="input-panel">
           <form id="analysis-form">

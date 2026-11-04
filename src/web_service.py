@@ -5,6 +5,9 @@ import time
 import zipfile
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
+
+from src.progress import notify
 
 import cv2
 import numpy as np
@@ -62,7 +65,7 @@ def validate_image(path, crop_top):
     return width, height
 
 
-def _draw_detection_boxes(image_rgb, fruits):
+def _draw_detection_boxes(image_rgb, fruits, label_prefix="Chili", index_offset=0):
     """Draw the detector bbox and the padded crop used by Chili.get_img()."""
     output = image_rgb.copy()
     height, width = output.shape[:2]
@@ -87,7 +90,7 @@ def _draw_detection_boxes(image_rgb, fruits):
         label_y = max(30, y - 12)
         cv2.putText(
             output,
-            f"Chili {index}",
+            f"{label_prefix} {index + index_offset}",
             (x, label_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             1.0,
@@ -97,7 +100,7 @@ def _draw_detection_boxes(image_rgb, fruits):
         )
         cv2.putText(
             output,
-            f"Chili {index}",
+            f"{label_prefix} {index + index_offset}",
             (x, label_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             1.0,
@@ -534,52 +537,132 @@ def extract_chili_features(image_path):
     return pd.DataFrame([feature_row(c) for c in run_image(image_path, config, _get_models(config)).items], columns=FEATURE_COLUMNS)
 
 
-def process_image(image_path, config, output_dir, source):
-    """Run the unchanged pipeline and write browser-ready artifacts for one job."""
+def process_image(image_path, config, output_dir, source, on_progress=None):
+    """Publish immutable stage artifacts while the unchanged measurements run."""
     output_dir = Path(output_dir)
     (output_dir / "images").mkdir(parents=True, exist_ok=True)
+    saved = {}
+    candidate_artifacts = {}
+    accepted = []
+
+    def save(image, name, caption):
+        if name not in saved:
+            path = output_dir / "images" / f"{name}.png"
+            temporary = path.with_name(path.stem + ".part.png")
+            pixels = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if image.ndim == 3 else image
+            if not cv2.imwrite(str(temporary), pixels):
+                raise RuntimeError("A result image could not be saved.")
+            os.replace(temporary, path)
+            saved[name] = {"url": f"images/{name}.png", "caption": caption}
+        return dict(saved[name])
+
+    def report(event):
+        # Subjects contain arrays and models; only artifact references and plain
+        # metadata cross the API boundary. Serialization happens synchronously.
+        public = {key: value for key, value in event.items() if key not in {"subject", "boxes"}}
+        subject = event.get("subject")
+        node, state = event.get("node"), event["state"]
+        index = event.get("candidate_index")
+        outputs = {"images": [], "details": {}}
+        if node == "scale" and state == "completed":
+            outputs["details"] = {"mm_per_pixel": float(subject.ratio), "source": subject.scale_source,
+                                  "warning": subject.scale_warning}
+        elif node == "detection" and state == "completed":
+            boxes = [[int(v) for v in box] for box in event["boxes"]]
+            outputs["images"] = [save(_draw_detection_boxes(image_rgb, SimpleNamespace(box_cut=boxes), label_prefix="Candidate", index_offset=1),
+                "detected-candidates", "Detection candidates · before segmentation validation")]
+            outputs["details"] = {"candidate_count": len(boxes), "boxes_xywh": boxes}
+        elif index is not None and state == "completed" and subject is not None:
+            artifacts = candidate_artifacts.setdefault(index, {})
+            name = f"candidate-{index}"
+            if node == "crop":
+                artifacts["raw"] = save(subject.img, name + "-raw", f"Candidate {index + 1} · padded crop")
+                outputs["images"] = [artifacts["raw"]]
+                outputs["details"] = {"bbox_xywh": [int(v) for v in subject.bbox], "padding_px": 50}
+            elif node == "segmentation":
+                outputs["images"] = [
+                    save(subject.img, name + "-oriented", f"Candidate {index + 1} · orientation-normalized input"),
+                    save(draw_full_mask_with_labels(subject.img, subject.rseg["polygons"]),
+                         name + "-model-overlay", f"Candidate {index + 1} · model segmentation")]
+                outputs["details"] = {"rotation": subject.rotation,
+                    "model_detections": len(subject.rseg.get("detections", [])),
+                    "whole_fruit_mask_source": "red_channel_threshold"}
+            elif node == "masks":
+                artifacts["normalized"] = save(subject.img, name + "-normalized", f"Chili {subject.id} · normalized orientation")
+                segment, caption = _build_segmentation_gallery(SimpleNamespace(items=[subject]))[0]
+                artifacts["segmentation"] = save(segment, name + "-segmentation", caption)
+                sheet, caption = _build_class_mask_gallery(SimpleNamespace(items=[subject]))[0]
+                artifacts["class_masks"] = save(sheet, name + "-masks", caption)
+                outputs["images"] = [artifacts["segmentation"], artifacts["class_masks"]]
+                outputs["details"] = {"mask_classes": ["seed", "outer", "PCP", "endocarp", "whole fruit", "pedicel", "placenta"]}
+            elif node == "traits":
+                card, caption = _build_comparison_gallery(SimpleNamespace(items=[subject]), image_rgb)[0]
+                artifacts["comparison"] = save(card, name + "-comparison", caption)
+                outputs["images"] = [artifacts["comparison"]]
+                frame = pd.DataFrame([feature_row(subject)], columns=FEATURE_COLUMNS)
+                outputs["features"] = {"columns": FEATURE_COLUMNS,
+                    "rows": frame.astype(object).where(pd.notna(frame), None).values.tolist()}
+                outputs["details"] = {"groups": ["geometry", "seeds", "shape", "color"]}
+        if event.get("kind") == "candidate" and state == "completed":
+            accepted.append(index)
+        if outputs["images"] or outputs["details"] or "features" in outputs:
+            public["outputs"] = outputs
+        if on_progress is not None:
+            on_progress(public)
+
+    notify(on_progress, "input", "running")
     image_rgb = read_rgb(image_path)
     height, width = image_rgb.shape[:2]
     validate_image(image_path, config.det_crop_top)
-    models = _get_models(config)
-    started_at = time.perf_counter()
-    fruits = run_image(image_path, config, models)
-    elapsed = time.perf_counter() - started_at
-
-    def save(image, name, caption):
-        path = output_dir / "images" / f"{name}.png"
-        pixels = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) if image.ndim == 3 else image
-        if not cv2.imwrite(str(path), pixels):
-            raise RuntimeError("A result image could not be saved.")
-        return {"url": f"images/{name}.png", "caption": caption}
-
-    def gallery(items, name):
-        return [save(image, f"{name}-{i}", caption) for i, (image, caption) in enumerate(items)]
-
     roi = image_rgb[config.det_crop_top:].copy()
     images = {
         "original": save(image_rgb, "original", "Original input image"),
         "roi_guide": save(_draw_roi_guide(image_rgb, config.det_crop_top), "roi-guide", "Darkened header is excluded from detection"),
         "detection_roi": save(roi, "detection-roi", "Image passed to the detector"),
         "threshold_mask": save(get_detection_mask(roi, threshold=22, use_closing=True, use_contour=False), "threshold-mask", "Reference red-channel threshold mask"),
-        "detection": save(_draw_detection_boxes(image_rgb, fruits), "detection", "Green: detection box · yellow: padded crop"),
-        "full_segmentation": save(_build_full_segmentation(image_rgb, fruits), "full-segmentation", "Segmentation projected onto the source image"),
     }
-    galleries = {
-        "crops": gallery(_build_crop_gallery(fruits, image_rgb), "crop"),
-        "segmentation": gallery(_build_segmentation_gallery(fruits), "segment"),
-        "class_masks": gallery(_build_class_mask_gallery(fruits), "mask"),
-        "comparison": gallery(_build_comparison_gallery(fruits, image_rgb), "compare"),
-    }
+    notify(on_progress, "input", "completed", outputs={"images": list(images.values()),
+        "details": {"filename": image_path.name, "width": width, "height": height, "top_crop_px": config.det_crop_top}})
+    notify(on_progress, "models", "running")
+    cache_hits = _get_models.cache_info().hits
+    models = _get_models(config)
+    notify(on_progress, "models", "completed", outputs={"details": {
+        "cache_hit": _get_models.cache_info().hits > cache_hits,
+        "detector": config.detector_backend, "segmentation": Path(config.weight_seg).name, "device": config.device}})
+    started_at = time.perf_counter()
+    fruits = run_image(image_path, config, models, on_progress=report)
+    elapsed = time.perf_counter() - started_at
+
+    notify(on_progress, "results", "running")
+    images["detection"] = save(_draw_detection_boxes(image_rgb, fruits), "detection", "Accepted fruit · green: detection box · yellow: padded crop")
+    images["full_segmentation"] = save(_build_full_segmentation(image_rgb, fruits), "full-segmentation", "Segmentation projected onto the source image")
+    galleries = {"crops": [], "segmentation": [], "class_masks": [], "comparison": []}
+    for index in accepted:
+        artifacts = candidate_artifacts[index]
+        galleries["crops"].extend([artifacts["raw"], artifacts["normalized"]])
+        for key in ("segmentation", "class_masks", "comparison"):
+            galleries[key].append(artifacts[key])
     features = pd.DataFrame([feature_row(c) for c in fruits.items], columns=FEATURE_COLUMNS)
+    feature_table = {"columns": FEATURE_COLUMNS,
+        "rows": features.astype(object).where(pd.notna(features), None).values.tolist()}
+    notify(on_progress, "results", "completed", outputs={"images": [images["full_segmentation"], images["detection"]],
+        "features": feature_table, "details": {"accepted_fruit": fruits.num_fruit,
+        "rejected_candidates": len(fruits.candidate_diagnostics["rejected"])}})
+
+    notify(on_progress, "export", "running")
     manifest = create_manifest(config, [image_path])
     entry = image_diagnostics(fruits)
     entry["elapsed_seconds"] = elapsed
     manifest["images"].append(entry)
     csv_path, json_path = write_exports(output_dir, features, manifest)
-    with zipfile.ZipFile(output_dir / "chili_results.zip", "w", zipfile.ZIP_DEFLATED) as archive:
+    temporary_zip = output_dir / "chili_results.zip.part"
+    with zipfile.ZipFile(temporary_zip, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in (csv_path, json_path):
             archive.write(path, path.name)
+    os.replace(temporary_zip, output_dir / "chili_results.zip")
+    downloads = {"zip": "chili_results.zip", "csv": "output.csv", "manifest": "manifest.json"}
+    notify(on_progress, "export", "completed", outputs={"downloads": downloads,
+        "details": {"rows": len(features), "columns": len(FEATURE_COLUMNS)}})
     warnings = []
     if fruits.num_fruit == 0:
         warnings.append("No fruit detected. Check the detection ROI, detector settings and segmentation validation.")
@@ -594,6 +677,5 @@ def process_image(image_path, config, output_dir, source):
                     "device": config.device, "configuration": config.effective_settings()},
         "warnings": warnings, "images": images, "galleries": galleries,
         "legend": [{"label": label, "color": list(color)} for label, color in legend],
-        "features": {"columns": FEATURE_COLUMNS, "rows": features.astype(object).where(pd.notna(features), None).values.tolist()},
-        "downloads": {"zip": "chili_results.zip", "csv": "output.csv", "manifest": "manifest.json"},
+        "features": feature_table, "downloads": downloads,
     }

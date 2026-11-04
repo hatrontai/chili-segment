@@ -82,7 +82,7 @@ def build_models(config):
     )
 
 
-def run_image(path, config, models=None):
+def run_image(path, config, models=None, on_progress=None):
     import cv2
     from src.object import Fruits
     path = Path(path)
@@ -95,7 +95,8 @@ def run_image(path, config, models=None):
             raise ValueError(f"Segment model {attr} differs from PipelineConfig")
     return Fruits(str(path), model_detect=detector, model_segment=segmenter,
                   fruit_threshold_offset=config.fruit_threshold_offset,
-                  mesocarp_wrinkle_segment_threshold_mm=config.wrinkle_tau_mm)
+                  mesocarp_wrinkle_segment_threshold_mm=config.wrinkle_tau_mm,
+                  **({"on_progress": on_progress} if on_progress is not None else {}))
 
 
 def feature_columns(include_root=False):

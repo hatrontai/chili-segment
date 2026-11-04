@@ -51,3 +51,6 @@ env/
 *~
 .DS_Store
 Thumbs.db
+
+# Bundled hero film poster (other generated images stay ignored)
+!/static/media/chili-demo-poster.jpg
