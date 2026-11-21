@@ -55,3 +55,7 @@ header, set `--det-crop-top 0` instead of the default 540-pixel crop.
 pip install httpx  # TestClient dependency for API tests
 python -m unittest discover -s tests -p 'test_*.py' -v
 ```
+
+## Dataset
+
+[Subset of Chili Dataset](https://drive.google.com/drive/folders/1RtOHoERPzH5632HS1NmBeejl5JY4zZw9?usp=sharing)
