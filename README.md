@@ -20,8 +20,8 @@ Place the checkpoints in `weights/` (not included in Git):
 
 | Model | File |
 | --- | --- |
-| Detection — Web and CLI | [yolov7_detection.onnx](https://drive.google.com/file/d/17DBxTxCuZt0Pi1XQAoFCthMxJjn7nhLp/view?usp=drive_link) |
-| Segmentation — Web and CLI | [yolov11m_segment_final.pt](https://drive.google.com/file/d/1h57Z0VuCEqiLwBAD2MJME16eCRzTdjXz/view?usp=sharing) |
+| Detection — Web and CLI | [yolov7_detection.onnx]([https://drive.google.com/file/d/17DBxTxCuZt0Pi1XQAoFCthMxJjn7nhLp/view?usp=drive_link](https://drive.google.com/file/d/17DBxTxCuZt0Pi1XQAoFCthMxJjn7nhLp/view?usp=sharing)) |
+| Segmentation — Web and CLI | [yolov11m_segment_final.pt]([https://drive.google.com/file/d/1h57Z0VuCEqiLwBAD2MJME16eCRzTdjXz/view?usp=sharing](https://drive.google.com/file/d/1h57Z0VuCEqiLwBAD2MJME16eCRzTdjXz/view?usp=sharing)) |
 
 Download both model files above into `weights/` using the filenames shown.
 
